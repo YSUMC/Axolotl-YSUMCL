@@ -20,7 +20,15 @@ export interface PackLocationFile {
     path: string
 }
 
-export type CreatePackLocation = PackLocationVersionId | PackLocationFile
+export interface PackLocationUrl {
+    type: 'fromUrl'
+    url: string
+    sha1: string
+    size: number
+    display: { name: string; gameVersion: string; loader: string | null; loaderVersion: string | null; iconUrl: string | null }
+}
+
+export type CreatePackLocation = PackLocationVersionId | PackLocationFile | PackLocationUrl
 
 export interface InstallModpackPreview {
     name: string

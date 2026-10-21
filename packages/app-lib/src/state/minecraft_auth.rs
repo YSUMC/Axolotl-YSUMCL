@@ -30,6 +30,12 @@ use tokio::task;
 use url::Url;
 use uuid::Uuid;
 
+mod oidc;
+pub use oidc::{
+    YsumcDeviceLoginFlow, YsumcDeviceLoginPoll,
+    begin_device_login as begin_ysumc_device_login,
+    poll_device_login as poll_ysumc_device_login,
+};
 mod yggdrasil;
 pub use yggdrasil::*;
 

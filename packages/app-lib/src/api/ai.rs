@@ -2965,6 +2965,7 @@ async fn complete_cloudflare(
 
 #[tracing::instrument(skip(request), fields(provider_id = %request.provider_id, model_id = %request.model_id))]
 pub async fn complete_text(request: AiTextRequest) -> crate::Result<String> {
+    ensure_ai_available()?;
     let state = State::get().await?;
     let enabled = sqlx::query_scalar::<_, i64>(
         "SELECT enabled FROM ai_settings WHERE id = 0",
@@ -4013,4 +4014,11 @@ mod tests {
             .is_err()
         );
     }
+}
+
+fn ensure_ai_available() -> crate::Result<()> {
+    Err(crate::ErrorKind::InputError(
+        "AI features are disabled in YSUMC Launcher".into(),
+    )
+    .as_error())
 }

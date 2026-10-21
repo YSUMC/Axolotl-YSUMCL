@@ -227,7 +227,7 @@ async function refresh() {
             const [version, channel] = await Promise.all([getVersion(), getUpdateChannel()])
             endpoint = new URL(
                 import.meta.env.VITE_AXO_ANNOUNCEMENTS_URL ||
-                    'https://admin.axlmc.org/api/public/announcements',
+                    'https://skin.ysumc.net/api/launcher/announcements',
             )
             endpoint.searchParams.set('version', version)
             endpoint.searchParams.set('channel', channel === 'release' ? 'stable' : 'beta')
@@ -240,7 +240,7 @@ async function refresh() {
         const text = await response.text()
         if (text.length > 4500000) return
         const result = JSON.parse(text)
-        const parsed = parseAnnouncements(result.announcements)
+        const parsed = parseAnnouncements(Array.isArray(result) ? result : result.announcements)
         if (!parsed || disposed) return
         sync(parsed, true)
         try {

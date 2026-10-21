@@ -139,6 +139,7 @@ const visibleTools = computed(() => {
     const favoriteSet = new Set(favoriteToolIds.value)
 
     const filtered = labTools.filter((tool) => {
+        if (tool.id === 'mod-translation') return false
         const matchingCategory = category.value === 'all' || tool.category === category.value
         const matchingFavorite =
             favoriteFilter.value === 'all' ||

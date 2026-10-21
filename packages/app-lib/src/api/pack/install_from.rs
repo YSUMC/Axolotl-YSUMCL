@@ -14,7 +14,7 @@ use crate::state::{
 use crate::util::fetch::{
     ContentValidation, DownloadMeta, DownloadReason, DownloadRequest,
     FetchProgressFn, Integrity, ResourceClass, download_to_path, fetch,
-    write_cached_icon,
+    sha1_file_async, write_cached_icon,
 };
 use path_util::SafeRelativeUtf8UnixPathBuf;
 use serde::{Deserialize, Serialize};
@@ -121,6 +121,12 @@ pub enum CreatePackLocation {
     FromFile {
         path: PathBuf,
     },
+    FromUrl {
+        url: String,
+        sha1: String,
+        size: u64,
+        display: RemotePackDisplay,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -197,6 +203,27 @@ pub async fn get_instance_from_pack(
             }),
             ..Default::default()
         }),
+        CreatePackLocation::FromUrl {
+            url,
+            sha1,
+            size,
+            display,
+        } => {
+            validate_remote_pack(&url, &sha1, size)?;
+            Ok(CreatePackInstance {
+                name: display.name,
+                game_version: display.game_version,
+                modloader: display
+                    .loader
+                    .as_deref()
+                    .map(ModLoader::try_from_string)
+                    .transpose()?
+                    .unwrap_or(ModLoader::Vanilla),
+                loader_version: display.loader_version,
+                icon_url: display.icon_url,
+                ..Default::default()
+            })
+        }
         CreatePackLocation::FromFile { path } => {
             let file_name = path
                 .file_stem()
@@ -847,4 +874,208 @@ async fn resolve_pack_loader_version(
         ))
         .into()
     })
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RemotePackDisplay {
+    pub name: String,
+    pub game_version: String,
+    pub loader: Option<String>,
+    pub loader_version: Option<String>,
+    pub icon_url: Option<String>,
+}
+
+const DOWNLOADED_PACK_CACHE_FOLDER: &str = "ysumc-packs";
+
+fn validate_remote_pack(url: &str, sha1: &str, size: u64) -> crate::Result<()> {
+    let parsed = url::Url::parse(url).map_err(|_| {
+        crate::ErrorKind::InputError("Invalid official pack URL".into())
+    })?;
+    if parsed.scheme() != "https"
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || sha1.len() != 40
+        || !sha1.bytes().all(|c| c.is_ascii_hexdigit())
+        || size == 0
+    {
+        return Err(crate::ErrorKind::InputError(
+            "Official packs require HTTPS, a SHA-1 hash and a positive size"
+                .into(),
+        )
+        .as_error());
+    }
+    Ok(())
+}
+
+impl CreatePackLocation {
+    pub(crate) async fn resolve_remote(
+        self,
+        reporter: InstallProgressReporter,
+    ) -> crate::Result<Self> {
+        match self {
+            Self::FromUrl {
+                url, sha1, size, ..
+            } => {
+                validate_remote_pack(&url, &sha1, size)?;
+                let path = downloaded_pack_path(Some(&sha1)).await?;
+                download_pack_with_progress(
+                    &url,
+                    Some(&sha1),
+                    Some(size),
+                    &path,
+                    reporter,
+                )
+                .await?;
+                verify_pack_file(&path, Some(&sha1), Some(size)).await?;
+                Ok(Self::FromFile { path })
+            }
+            location => Ok(location),
+        }
+    }
+}
+/// Enforces the declared SHA-1 and size of a pack that is already on disk.
+async fn verify_pack_file(
+    path: &Path,
+    sha1: Option<&str>,
+    size: Option<u64>,
+) -> crate::Result<()> {
+    let metadata = tokio::fs::metadata(path).await.map_err(|error| {
+        crate::ErrorKind::InputError(format!(
+            "Modpack file {} is not readable: {error}",
+            path.display()
+        ))
+    })?;
+    if let Some(expected) = size
+        && metadata.len() != expected
+    {
+        return Err(crate::ErrorKind::InputError(format!(
+            "Modpack file {} is {actual} bytes, but {expected} bytes were declared",
+            path.display(),
+            actual = metadata.len()
+        ))
+        .as_error());
+    }
+    if let Some(expected) = sha1.map(str::trim).filter(|sha1| !sha1.is_empty())
+    {
+        let (_, actual) = sha1_file_async(path).await?;
+        if !actual.eq_ignore_ascii_case(expected) {
+            return Err(crate::ErrorKind::HashError(
+                expected.to_ascii_lowercase(),
+                actual,
+            )
+            .as_error());
+        }
+    }
+    Ok(())
+}
+
+/// Where a downloaded pack is cached.
+///
+/// The cache entry is keyed by the pack's own SHA-1, so the same revision of the
+/// same pack always resolves to the same file across runs: a finished download
+/// is reused, and an interrupted one resumes where it stopped.
+async fn downloaded_pack_path(sha1: Option<&str>) -> crate::Result<PathBuf> {
+    let key = sha1
+        .map(|sha1| sha1.trim().to_ascii_lowercase())
+        .filter(|sha1| {
+            sha1.len() == 40 && sha1.bytes().all(|c| c.is_ascii_hexdigit())
+        })
+        .unwrap_or_else(|| "unverified".to_string());
+    let state = State::get().await?;
+    Ok(state
+        .directories
+        .caches_dir()
+        .join(DOWNLOADED_PACK_CACHE_FOLDER)
+        .join(format!("{key}.mrpack")))
+}
+
+/// Downloads a pack while reporting progress into the install job that asked for
+/// it.
+#[tracing::instrument(skip(reporter))]
+pub(crate) async fn download_pack_with_progress(
+    url: &str,
+    sha1: Option<&str>,
+    size: Option<u64>,
+    destination: &Path,
+    reporter: InstallProgressReporter,
+) -> crate::Result<()> {
+    let state = State::get().await?;
+    if let Some(parent) = destination.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    let integrity = Integrity {
+        size,
+        sha1: sha1.map(str::to_string),
+        content: ContentValidation::Jar,
+        ..Integrity::default()
+    };
+
+    let mut last_reported_bytes = 0_u64;
+    let mut progress =
+        |current: u64,
+         total: u64|
+         -> Pin<Box<dyn Future<Output = crate::Result<()>> + Send>> {
+            // A pack is hundreds of megabytes over a slow link, so the job is
+            // told where it is often enough to look alive without writing a
+            // database row per chunk.
+            let min_delta = (total / 200).max(512 * 1024);
+            if current < total
+                && current.saturating_sub(last_reported_bytes) < min_delta
+            {
+                return Box::pin(async { Ok(()) });
+            }
+            last_reported_bytes = current;
+
+            let reporter = reporter.clone();
+            Box::pin(async move {
+                reporter
+                    .update(
+                        InstallPhaseId::DownloadingPackFile,
+                        Some(InstallProgress {
+                            current,
+                            total,
+                            secondary: None,
+                        }),
+                        InstallPhaseDetails::Modpack {
+                            project_id: None,
+                            version_id: None,
+                            title: None,
+                        },
+                    )
+                    .await?;
+                Ok(())
+            })
+        };
+
+    let item_name = destination
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "pack.mrpack".to_string());
+    let result = download_to_path(
+        DownloadRequest::new(url, ResourceClass::Modpack)
+            .with_integrity(integrity)
+            .with_h2_range_concurrency(16)
+            .with_install_tracking(
+                reporter.clone(),
+                destination.display().to_string(),
+                item_name,
+            ),
+        destination,
+        &state.download_semaphore,
+        &state.pool,
+        Some(&mut progress as &mut FetchProgressFn<'_>),
+    )
+    .await?;
+
+    if result.attempts > 0 {
+        reporter
+            .record_download_metrics(
+                result.source.as_str(),
+                result.fallback_count as u64,
+            )
+            .await?;
+    }
+    Ok(())
 }

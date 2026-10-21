@@ -196,6 +196,6 @@ export const settingsCategoryDefinitions: SettingsCategoryDefinition[] = [
 
 export function getVisibleSettingsCategoryDefinitions(developerMode: boolean) {
     return settingsCategoryDefinitions.filter(
-        (category) => !category.developerOnly || developerMode,
+        (category) => category.id !== 'ai' && (!category.developerOnly || developerMode),
     )
 }

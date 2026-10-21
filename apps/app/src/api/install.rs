@@ -79,6 +79,7 @@ pub struct InstallPostInstallEditRequest {
 impl InstallPostInstallEditRequest {
     fn into_core(self) -> Result<InstallPostInstallEdit> {
         Ok(InstallPostInstallEdit {
+            official: None,
             name: self.name,
             icon_path: self.icon_path,
             link: self.link.map(|link| link.into_core()).transpose()?,

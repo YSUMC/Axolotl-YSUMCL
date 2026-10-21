@@ -49,11 +49,13 @@
 //! latest profile again whenever the result is unclear.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, LazyLock},
     time::Duration,
 };
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 pub use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt, stream};
 use serde::{Deserialize, Serialize};
@@ -91,6 +93,9 @@ pub(crate) use offline::{
 };
 
 mod png_util;
+mod ysumc_site;
+
+pub use ysumc_site::{cape_texture_id, texture_id as site_texture_id};
 
 const SKIN_CHANGE_DEBOUNCE: Duration = Duration::from_secs(10);
 
@@ -273,6 +278,16 @@ fn ensure_skin_management_supported(
     credentials: &Credentials,
 ) -> crate::Result<()> {
     if credentials.is_yggdrasil() {
+        // The society's own skin site hosts its players' skins and exposes the
+        // launcher endpoints used below. Any other Yggdrasil provider is not
+        // ours to write to.
+        let supported = credentials.yggdrasil.as_ref().is_some_and(|account| {
+            crate::ysumc::is_yggdrasil_api_root(&account.api_root)
+        });
+        if supported {
+            return Ok(());
+        }
+
         return Err(ErrorKind::InputError(
             "Skins for third-party Yggdrasil accounts must be managed through the account provider"
                 .to_string(),
@@ -280,6 +295,13 @@ fn ensure_skin_management_supported(
         .as_error());
     }
     Ok(())
+}
+
+fn is_society_skin_site(credentials: &Credentials) -> bool {
+    credentials.is_yggdrasil()
+        && credentials.yggdrasil.as_ref().is_some_and(|account| {
+            crate::ysumc::is_yggdrasil_api_root(&account.api_root)
+        })
 }
 
 /// Gets the capes for the selected Minecraft profile.
@@ -291,6 +313,12 @@ pub async fn get_available_capes() -> crate::Result<Vec<Cape>> {
     let selected_credentials = Credentials::get_default_credential(&state.pool)
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
+
+    // A society account's capes are textures in the skin site's closet, which is a
+    // different library from the Mojang profile the code below reads.
+    if is_society_skin_site(&selected_credentials) {
+        return Ok(ysumc_site::fetch_skins(&selected_credentials).await?.capes);
+    }
 
     let Some(profile) = selected_credentials.online_profile_fresh().await
     else {
@@ -331,8 +359,21 @@ pub async fn get_available_skins() -> crate::Result<Vec<Skin>> {
     let selected_credentials = Credentials::get_default_credential(&state.pool)
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
+    let log_started = std::time::Instant::now();
+    tracing::info!(
+        target: "theseus::api::minecraft_skins",
+        player = %selected_credentials.offline_profile.name,
+        is_society = is_society_skin_site(&selected_credentials),
+        "listing available skins"
+    );
 
     let online_profile = selected_credentials.online_profile_fresh().await;
+    tracing::info!(
+        target: "theseus::api::minecraft_skins",
+        elapsed_ms = log_started.elapsed().as_millis() as u64,
+        has_profile = online_profile.is_some(),
+        "read the account's online profile"
+    );
     let profile_id = online_profile
         .as_ref()
         .map_or(selected_credentials.offline_profile.id, |profile| {
@@ -529,8 +570,9 @@ pub async fn get_available_skins() -> crate::Result<Vec<Skin>> {
         });
     }
 
-    // Keep the active Mojang skin visible even if the app has never saved it.
-    if !found_equipped_skin {
+    // Keep the active skin visible even if the app has never saved it. A society
+    // account gets this from the site list below instead.
+    if !found_equipped_skin && !is_society_skin_site(&selected_credentials) {
         if let Some(mut skin) = pending_skin {
             skin.is_equipped = true;
             available_skins.push(skin);
@@ -548,7 +590,107 @@ pub async fn get_available_skins() -> crate::Result<Vec<Skin>> {
         }
     }
 
+    // The society's skin site is the source of truth for a society account: the
+    // textures in its closet are the player's skins, and they can be equipped
+    // straight from here.
+    if is_society_skin_site(&selected_credentials) {
+        tracing::info!(
+            target: "theseus::api::minecraft_skins",
+            elapsed_ms = log_started.elapsed().as_millis() as u64,
+            local_skins = available_skins.len(),
+            "asking the skin site for the character's textures"
+        );
+        match ysumc_site::fetch_skins(&selected_credentials).await {
+            Ok(site) => {
+                let mut site_skins = site.skins;
+                for skin in site_skins.iter_mut() {
+                    skin.is_equipped =
+                        Some(ysumc_site::texture_id(skin).unwrap_or_default())
+                            == site.equipped_skin_tid;
+                    if skin.is_equipped {
+                        skin.cape_id =
+                            site.equipped_cape_tid.map(ysumc_site::cape_uuid);
+                    }
+                }
+
+                // Take a skin only once. The site list wins because it is the same
+                // library the player sees on the website; the entries the Mojang
+                // path produced above are either rows an older launcher mirrored
+                // locally or the profile fallback, and counting them twice is what
+                // made the launcher show more skins than the site has.
+                let site_textures = site_skins
+                    .iter()
+                    .map(site_skin_texture)
+                    .collect::<HashSet<_>>();
+                let is_on_site = |skin: &Skin| {
+                    texture_hash(&skin.texture)
+                        .is_some_and(|hash| site_textures.contains(&hash))
+                };
+
+                let site_has_equipped =
+                    site_skins.iter().any(|skin| skin.is_equipped);
+
+                for mut skin in available_skins {
+                    if is_on_site(&skin) {
+                        continue;
+                    }
+                    // Exactly one entry may carry the equipped flag, and the site
+                    // already claimed it.
+                    if site_has_equipped && skin.is_equipped {
+                        continue;
+                    }
+                    skin.is_equipped = false;
+                    site_skins.push(skin);
+                }
+
+                tracing::info!(
+                    target: "theseus::api::minecraft_skins",
+                    elapsed_ms = log_started.elapsed().as_millis() as u64,
+                    skins = site_skins.len(),
+                    capes = site.capes.len(),
+                    "returning the skin site's closet"
+                );
+
+                return Ok(site_skins);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    target: "theseus::api::minecraft_skins",
+                    elapsed_ms = log_started.elapsed().as_millis() as u64,
+                    "Unable to list the skin site textures, showing local skins only: {error}"
+                );
+            }
+        }
+    }
+
+    tracing::info!(
+        target: "theseus::api::minecraft_skins",
+        elapsed_ms = log_started.elapsed().as_millis() as u64,
+        skins = available_skins.len(),
+        "returning locally known skins"
+    );
+
     Ok(available_skins)
+}
+
+/// The content hash a skin site serves its textures under.
+fn site_skin_texture(skin: &Skin) -> String {
+    texture_hash(&skin.texture).unwrap_or_default()
+}
+
+/// Blessing Skin serves a texture as `/textures/{sha256}`, which is the same hash
+/// the launcher names a mirrored texture row after.
+fn texture_hash(texture: &Url) -> Option<String> {
+    if texture.scheme() == "data" {
+        let (_, encoded) = texture.as_str().split_once("base64,")?;
+        let blob = BASE64_STANDARD.decode(encoded).ok()?;
+        return Some(format!("{:x}", sha2::Sha256::digest(&blob)));
+    }
+
+    texture
+        .path_segments()?
+        .next_back()
+        .map(|segment| segment.to_ascii_lowercase())
 }
 
 /// Adds or updates a skin in the app database and equips it for the current profile.
@@ -569,6 +711,37 @@ pub async fn add_and_equip_custom_skin(
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
     ensure_skin_management_supported(&selected_credentials)?;
+
+    // A society account lives entirely on the skin site: the texture goes into the
+    // site's closet and is equipped there, and the site's closet is what lists the
+    // player's skins afterwards, so there is nothing to mirror locally.
+    if is_society_skin_site(&selected_credentials) {
+        let cape_tid = selected_site_cape(cape.as_ref().map(|cape| cape.id))?;
+        let uploaded = ysumc_site::upload_skin(
+            &selected_credentials,
+            &texture_blob,
+            variant,
+            &local_skin_name(&texture_blob),
+        )
+        .await?;
+        ysumc_site::equip_texture(
+            &selected_credentials,
+            Some(uploaded.tid),
+            Some(cape_tid),
+        )
+        .await?;
+
+        return Ok(uploaded
+            .into_skin(true, cape.as_ref().map(|cape| cape.id))
+            .ok_or_else(|| {
+                ErrorKind::OtherError(
+                    "The skin site did not return a usable texture URL"
+                        .to_string(),
+                )
+                .as_error()
+            })?);
+    }
+
     let cape_id = if selected_credentials.is_offline() {
         None
     } else {
@@ -742,6 +915,12 @@ pub async fn equip_skin(skin: Skin) -> crate::Result<()> {
         .ok_or(ErrorKind::NoCredentialsError)?;
     ensure_skin_management_supported(&selected_credentials)?;
 
+    if is_society_skin_site(&selected_credentials) {
+        equip_on_skin_site(&selected_credentials, &skin).await?;
+
+        return Ok(());
+    }
+
     if selected_credentials.is_offline() {
         equip_offline_skin_now(&state, &selected_credentials, &skin).await?;
     } else {
@@ -753,6 +932,51 @@ pub async fn equip_skin(skin: Skin) -> crate::Result<()> {
     }
 
     Ok(())
+}
+
+/// Equips a site texture, uploading bundled/local textures to the closet first.
+async fn equip_on_skin_site(
+    credentials: &Credentials,
+    skin: &Skin,
+) -> crate::Result<()> {
+    let cape_tid = selected_site_cape(skin.cape_id)?;
+    let skin_tid = if let Some(tid) = ysumc_site::texture_id(skin) {
+        tid
+    } else {
+        let texture = png_util::url_to_data_stream(&skin.texture)
+            .await?
+            .try_fold(Vec::new(), |mut bytes, chunk| async move {
+                bytes.extend_from_slice(&chunk);
+                Ok(bytes)
+            })
+            .await?;
+        let (width, height) = png_util::dimensions(&texture)?;
+        if width != 64 || ![32, 64].contains(&height) {
+            return Err(ErrorKind::InvalidSkinTexture.into());
+        }
+        ysumc_site::upload_skin(
+            credentials,
+            &Bytes::from(texture),
+            skin.variant,
+            skin.name.as_deref().unwrap_or("Minecraft skin"),
+        )
+        .await?
+        .tid
+    };
+
+    ysumc_site::equip_texture(credentials, Some(skin_tid), Some(cape_tid)).await
+}
+
+fn selected_site_cape(id: Option<uuid::Uuid>) -> crate::Result<Option<i64>> {
+    id.map(|id| {
+        ysumc_site::cape_tid_from_uuid(id).ok_or_else(|| {
+            ErrorKind::InputError(
+                "Please choose a cape from your YSUMC closet".into(),
+            )
+            .as_error()
+        })
+    })
+    .transpose()
 }
 
 async fn equip_offline_skin_now(
@@ -930,6 +1154,17 @@ pub async fn remove_custom_skin(skin: Skin) -> crate::Result<()> {
         .ok_or(ErrorKind::NoCredentialsError)?;
     ensure_skin_management_supported(&selected_credentials)?;
 
+    // A society account's skins belong to the site: drop the texture from its
+    // closet there, and let the launcher's local library follow along. A texture
+    // the site no longer has (already removed on the website, say) is not an
+    // error worth blocking the local cleanup.
+    if let Some(site_tid) = is_society_skin_site(&selected_credentials)
+        .then(|| ysumc_site::texture_id(&skin))
+        .flatten()
+    {
+        ysumc_site::delete_texture(&selected_credentials, site_tid).await?;
+    }
+
     if selected_credentials.is_offline() {
         OfflineMinecraftSkin::clear_if_texture(
             selected_credentials.offline_profile.id,
@@ -1000,6 +1235,38 @@ pub async fn save_custom_skin(
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
     ensure_skin_management_supported(&selected_credentials)?;
+
+    // The site's closet is the only skin library a society account has, so an edit
+    // is an upload: the site stores a new texture, the character keeps wearing it
+    // when it already was, and the local database stays out of the way.
+    if is_society_skin_site(&selected_credentials) {
+        let cape_tid = selected_site_cape(cape.as_ref().map(|cape| cape.id))?;
+        let uploaded = ysumc_site::upload_skin(
+            &selected_credentials,
+            &texture_blob,
+            variant,
+            &local_skin_name(&texture_blob),
+        )
+        .await?;
+        if skin.is_equipped {
+            ysumc_site::equip_texture(
+                &selected_credentials,
+                Some(uploaded.tid),
+                Some(cape_tid),
+            )
+            .await?;
+        }
+
+        return uploaded
+            .into_skin(skin.is_equipped, cape.as_ref().map(|cape| cape.id))
+            .ok_or_else(|| {
+                ErrorKind::OtherError(
+                    "The skin site did not return a usable texture URL"
+                        .to_string(),
+                )
+                .as_error()
+            });
+    }
 
     let old_texture_key = Arc::clone(&skin.texture_key);
     let texture_key = if replace_texture {
@@ -1082,7 +1349,14 @@ pub async fn unequip_skin() -> crate::Result<()> {
         .await?
         .ok_or(ErrorKind::NoCredentialsError)?;
     ensure_skin_management_supported(&selected_credentials)?;
-
+    if is_society_skin_site(&selected_credentials) {
+        return ysumc_site::equip_texture(
+            &selected_credentials,
+            Some(0),
+            Some(None),
+        )
+        .await;
+    }
     if selected_credentials.is_offline() {
         OfflineMinecraftSkin::clear(
             selected_credentials.offline_profile.id,
@@ -1485,6 +1759,13 @@ fn get_fallback_default_skin() -> crate::Result<&'static Skin> {
 
 fn local_skin_texture_key(texture_blob: &[u8]) -> Arc<str> {
     Arc::from(format!("local-{:x}", sha2::Sha256::digest(texture_blob)))
+}
+
+/// A stable, readable label for a texture the player just uploaded. The site shows
+/// it in the closet, and the launcher has no other name to offer.
+fn local_skin_name(texture_blob: &[u8]) -> String {
+    let digest = format!("{:x}", sha2::Sha256::digest(texture_blob));
+    format!("skin-{}", &digest[..8])
 }
 
 #[derive(Debug, PartialEq, Eq)]

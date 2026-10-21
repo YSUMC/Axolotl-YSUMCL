@@ -12,6 +12,7 @@ pub(super) async fn run_request(
     job_state: &mut InstallJobState,
     state: &State,
 ) -> crate::Result<InstallExecutionOutcome<Option<String>>> {
+    validate_official_content_write(&job_state.request).await?;
     match job_state.request.clone() {
         InstallRequest::CreateInstance {
             name,

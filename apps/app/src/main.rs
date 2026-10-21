@@ -861,7 +861,6 @@ fn main() {
         });
 
     builder = builder
-        .plugin(api::ai::init())
         .plugin(api::auth::init())
         .plugin(api::mr_auth::init())
         .plugin(api::import::init())
@@ -872,7 +871,6 @@ fn main() {
         .plugin(api::metadata::init())
         .plugin(api::mcarchive::init())
         .plugin(api::minecraft_skins::init())
-        .plugin(api::mod_translation::init())
         .plugin(api::process::init())
         .plugin(api::planet_minecraft::init())
         .plugin(api::settings::init())

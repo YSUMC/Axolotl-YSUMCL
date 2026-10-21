@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { ref } from 'vue'
+import { AxolotlBrandConfig } from '@/config'
 
 export type AIProtocol =
     | 'openai'
@@ -82,10 +83,16 @@ export type OAuthPollStatus = 'pending' | 'success' | 'expired' | 'denied' | 'sl
 export const sharedAIState = ref<AIState | null>(null)
 
 export async function getAICatalog(): Promise<AIProviderDefinition[]> {
+    if (!AxolotlBrandConfig.capabilities.ai) return []
     return await invoke('plugin:ai|ai_get_catalog')
 }
 
 export async function getAIState(): Promise<AIState> {
+    if (!AxolotlBrandConfig.capabilities.ai) {
+        const disabled = { settings: { enabled: false }, catalog_source: 'ysumc', providers: [] }
+        sharedAIState.value = disabled
+        return disabled
+    }
     const state = await invoke<AIState>('plugin:ai|ai_get_state')
     sharedAIState.value = state
     return state

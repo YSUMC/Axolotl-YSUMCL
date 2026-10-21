@@ -38,12 +38,19 @@ import SkinListSkeleton from '@/components/ui/skin/SkinListSkeleton.vue'
 import VirtualSkinSectionList from '@/components/ui/skin/VirtualSkinSectionList.vue'
 import { useMojangAuthStatus } from '@/composables/useMojangAuth'
 import { useNetworkStatus } from '@/composables/useNetworkStatus'
+import { YsumcConfig } from '@/config'
 import { accountSelectionRevision } from '@/helpers/account-state'
 import { get_default_user, users } from '@/helpers/auth'
+import type { MinecraftAccount } from '@/helpers/minecraft-account'
 import type { RenderResult } from '@/helpers/rendering/batch-skin-renderer.ts'
-import { setActiveSkinPreviews, skinBlobUrlMap } from '@/helpers/rendering/batch-skin-renderer.ts'
+import {
+    setActiveSkinPreviews,
+    skinBlobUrlMap,
+    skinPreviewFailures,
+} from '@/helpers/rendering/batch-skin-renderer.ts'
 import { createSkinAccountSession } from '@/helpers/skin-account-session'
 import { loadSkinArmorPreview, saveSkinArmorPreview } from '@/helpers/skin-armor-preview'
+import { newestSiteSkinsFirst } from '@/helpers/skin-order'
 import type { Cape, Skin, SkinTextureUrl } from '@/helpers/skins.ts'
 import {
     equip_skin,
@@ -67,7 +74,11 @@ async function generateSkinPreviews(skins: Skin[], capes: Cape[]) {
         await import('@/helpers/rendering/skin-preview-renderer')
     if (isUnmounted) return
     cancelSkinPreviews = cancel
-    await generate(skins, capes)
+    try {
+        await generate(skins, capes)
+    } catch (error) {
+        if (!isUnmounted) handleError(error as Error)
+    }
 }
 
 type VirtualSkinSectionListExpose = {
@@ -77,6 +88,7 @@ type VirtualSkinSectionListExpose = {
 const PENDING_SKIN_REFRESH_DELAY_MS = 11_000
 const DEFAULT_SKIN_SECTION_SORT_ORDER = ['Default skins']
 const messages = defineMessages({
+    retryPreviews: { id: 'ysumc.skins.retry-previews', defaultMessage: '重试失败的预览' },
     skinSelectorTitle: {
         id: 'app.skins.title',
         defaultMessage: 'Skin selector',
@@ -307,7 +319,7 @@ const { offline } = useNetworkStatus()
 const mojangAuth = useMojangAuthStatus()
 
 const accountsCard = inject('accountsCard') as Ref<typeof AccountsCard>
-const currentUser = ref(undefined)
+const currentUser = ref<MinecraftAccount | undefined>(undefined)
 const currentUserId = ref<string | undefined>(undefined)
 const currentAccountType = ref<'microsoft' | 'offline' | 'yggdrasil' | undefined>(undefined)
 
@@ -380,10 +392,14 @@ const skinTexture = computedAsync(async () => {
 const capeTexture = computed(() => currentCape.value?.texture)
 const skinVariant = computed(() => selectedSkin.value?.variant)
 const skinNametag = computed(() => (themeStore.hideNametagSkinsPage ? undefined : username.value))
+const isYsumcAccount = computed(
+    () =>
+        currentUser.value?.yggdrasil?.api_root?.replace(/\/$/, '') === YsumcConfig.yggdrasilApiRoot,
+)
 const isSkinManagementReadOnly = computed(
     () =>
-        currentAccountType.value === 'yggdrasil' ||
-        (currentAccountType.value !== 'offline' &&
+        (currentAccountType.value === 'yggdrasil' && !isYsumcAccount.value) ||
+        (currentAccountType.value === 'microsoft' &&
             (offline.value || mojangAuth.reachable.value === false)),
 )
 const hasPendingSkinChange = computed(
@@ -491,8 +507,8 @@ async function loadSkins(generation = skinAccountGeneration) {
                 ? mergeEquippedSkin(loadedSkins, locallyKnownEquippedSkin)
                 : loadedSkins
         if (generation !== skinAccountGeneration) return
-        skins.value = nextSkins
-        void generateSkinPreviews(nextSkins, capes.value)
+        skins.value = isYsumcAccount.value ? newestSiteSkinsFirst(nextSkins) : nextSkins
+        void generateSkinPreviews(skins.value, capes.value)
         selectedSkin.value = nextSkins.find((s) => s.is_equipped) ?? null
         originalSelectedSkin.value = selectedSkin.value
     } catch (error) {
@@ -634,6 +650,10 @@ function setLocallyEquippedSkin(skinToApply: Skin) {
 }
 
 function insertLocalSkin(savedSkin: Skin) {
+    if (isYsumcAccount.value) {
+        skins.value = newestSiteSkinsFirst([...skins.value, savedSkin])
+        return
+    }
     const firstNonCustomSkinIndex = skins.value.findIndex((skin) => skin.source !== 'custom')
 
     if (firstNonCustomSkinIndex === -1) {
@@ -1130,7 +1150,7 @@ await refreshSelectedAccount()
         </section>
     </Teleport>
     <Teleport
-        v-if="currentUser && currentAccountType === 'yggdrasil'"
+        v-if="currentUser && currentAccountType === 'yggdrasil' && !isYsumcAccount"
         to="#sidebar-default-teleport-target"
     >
         <section class="p-4">
@@ -1238,6 +1258,11 @@ await refreshSelectedAccount()
                     mode="local"
                     @tab-click="selectSkinListTab"
                 />
+                <Button
+                    v-if="skinPreviewFailures.size"
+                    @click="generateSkinPreviews(skins, capes)"
+                    >{{ formatMessage(messages.retryPreviews) }}</Button
+                >
                 <Button type="colored" color="brand" @click="router.push('/lab/skin-editor')"
                     ><PlusIcon />
                     {{ formatMessage(messages.createSkinButton) }}

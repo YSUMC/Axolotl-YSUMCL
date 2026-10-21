@@ -642,10 +642,6 @@ fn explicit_mirror_routes(
                        base: &str,
                        path: String,
                        source: DownloadRouteSource| {
-        // Disabled MCIM.
-        if source == DownloadRouteSource::Mcim {
-            return;
-        }
         if let Some(url) = url_with_base(&parsed, base, &path) {
             routes.push(route(url, source, true, supports_range));
         }
@@ -738,6 +734,17 @@ fn explicit_mirror_routes(
             format!("/curseforge{path}"),
             DownloadRouteSource::Mcim,
         ),
+        "edge.forgecdn.net" | "mediafilez.forgecdn.net"
+            if path.starts_with("/files/")
+                && resource == ResourceClass::CurseForge =>
+        {
+            push_mirror(
+                &mut routes,
+                MCIM_BASE_URL,
+                path.to_string(),
+                DownloadRouteSource::Mcim,
+            )
+        }
         _ => {}
     }
 

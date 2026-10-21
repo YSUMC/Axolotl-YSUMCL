@@ -6,8 +6,8 @@ import {
     ChangeSkinIcon,
     CompassIcon,
     ExternalIcon,
-    FlaskConicalIcon,
     FolderOpenIcon,
+    GlobeIcon,
     HomeIcon,
     ImagesIcon,
     LeftArrowIcon,
@@ -85,6 +85,7 @@ import ContentInstallPreviewModal from '@/components/ui/ContentInstallPreviewMod
 import ErrorModal from '@/components/ui/ErrorModal.vue'
 import AddServerToInstanceModal from '@/components/ui/install_flow/AddServerToInstanceModal.vue'
 import UnknownPackWarningModal from '@/components/ui/install_flow/UnknownPackWarningModal.vue'
+import YsumcLoginGate from '@/components/ui/login/YsumcLoginGate.vue'
 import MinecraftAuthErrorModal from '@/components/ui/minecraft-auth-error-modal/MinecraftAuthErrorModal.vue'
 import MinecraftCrashModal from '@/components/ui/MinecraftCrashModal.vue'
 import AuthGrantFlowWaitModal from '@/components/ui/modal/AuthGrantFlowWaitModal.vue'
@@ -110,6 +111,7 @@ import { minecraftLaunchErrorKey } from '@/composables/useMinecraftLaunchError'
 import { setupMojangAuthMonitor, useMojangAuthStatus } from '@/composables/useMojangAuth'
 import { useNetworkStatus } from '@/composables/useNetworkStatus'
 import { AxolotlBrandConfig, config, getOfficialLabrinthBaseUrl } from '@/config'
+import { accountSelectionRevision } from '@/helpers/account-state'
 import { trackEvent } from '@/helpers/analytics'
 import { get_user, get_version } from '@/helpers/cache.js'
 import { configureCurseForgeManualDownloadWatcher } from '@/helpers/curseforge'
@@ -160,7 +162,6 @@ import {
     type ShortcutAction,
 } from '@/helpers/shortcut-actions'
 import { resolveAllBindings } from '@/helpers/shortcut-bindings'
-import { getSidebarExpanded, setSidebarExpanded } from '@/helpers/sidebar-state.ts'
 import { get_opening_command, initialize_state, set_discord_activity } from '@/helpers/state'
 import {
     areUpdatesEnabled,
@@ -180,6 +181,7 @@ import {
     type WindowFrameResult,
 } from '@/helpers/window-appearance'
 import { start_join_server, start_join_singleplayer_world } from '@/helpers/worlds.ts'
+import { refreshYsumcSession, ysumcSessionChecked, ysumcSignedIn } from '@/helpers/ysumc-session'
 import { applyLocalePreference, setFollowSystemLocale } from '@/i18n.config'
 import {
     appUpdateState,
@@ -259,25 +261,12 @@ function getPageTransitionKey(route: RouteLocationNormalizedLoaded) {
 }
 const APP_SIDEBAR_WIDTH = 300
 const credentials = ref()
-const sidebarToggled = ref(getSidebarExpanded())
-
-function toggleSidebar() {
-    sidebarToggled.value = !sidebarToggled.value
-    setSidebarExpanded(sidebarToggled.value)
-}
-
 const forceSidebar = computed(
     () => route.path.startsWith('/browse') || route.path.startsWith('/project'),
 )
-const forceSidebarHidden = computed(() => route.path === '/settings')
-/** Console fullscreen collapses the account sidebar so its controls stay reachable. */
+/** Only discovery filters and project details use the right sidebar. */
 const consoleFullscreenActive = ref(false)
-const sidebarVisible = computed(
-    () =>
-        !forceSidebarHidden.value &&
-        !consoleFullscreenActive.value &&
-        (sidebarToggled.value || forceSidebar.value),
-)
+const sidebarVisible = computed(() => forceSidebar.value && !consoleFullscreenActive.value)
 const customBackgroundStyle = computed(() => {
     // A custom image would sit between the desktop and the UI, defeating the
     // transparent window entirely, so the two are mutually exclusive.
@@ -2281,6 +2270,17 @@ onMounted(() => {
 
 const accounts = ref<InstanceType<typeof AccountsCard> | null>(null)
 provide('accountsCard', accounts)
+watch(
+    [stateInitialized, accountSelectionRevision],
+    () => {
+        if (stateInitialized.value) void refreshYsumcSession()
+    },
+    { immediate: true },
+)
+const loginGateVisible = computed(() => stateInitialized.value && !ysumcSignedIn.value)
+watch(ysumcSignedIn, (signedIn) => {
+    if (signedIn) void accounts.value?.refreshValues?.()
+})
 
 command_listener(handleCommand)
 
@@ -2841,6 +2841,8 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
     <div
         v-if="stateInitialized"
         class="app-grid-layout relative"
+        :inert="loginGateVisible"
+        :aria-hidden="loginGateVisible"
         :class="{
             'disable-advanced-rendering': !themeStore.advancedRendering,
             'has-custom-background':
@@ -2958,13 +2960,12 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
                     <LibraryIcon />
                 </NavButton>
                 <NavButton
-                    v-if="!themeStore.isNavItemHidden('lab')"
-                    v-tooltip.right="formatMessage(messages.lab)"
-                    data-onboarding-id="nav-lab"
-                    to="/lab"
-                    :is-primary="(r) => r.path.startsWith('/lab')"
+                    v-tooltip.right="'云地图'"
+                    data-onboarding-id="nav-cloud-map"
+                    to="/cloud-map"
+                    :is-primary="(r) => r.path.startsWith('/cloud-map')"
                 >
-                    <FlaskConicalIcon />
+                    <GlobeIcon />
                 </NavButton>
             </NavRail>
             <div class="h-px w-6 mx-auto my-2 bg-surface-5"></div>
@@ -3080,7 +3081,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
         </div>
     </div>
     <div
-        v-if="stateInitialized"
+        v-if="stateInitialized && ysumcSignedIn"
         class="app-contents"
         :class="{
             'sidebar-enabled': sidebarVisible,
@@ -3161,39 +3162,16 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
             <ScrollToTopButton v-if="themeStore.showScrollTop" />
         </div>
         <div
+            v-show="sidebarVisible"
             class="app-sidebar mt-px shrink-0 flex flex-col border-0 border-l-[1px] border-[--brand-gradient-border] border-solid"
         >
-            <button
-                v-if="!forceSidebar && !forceSidebarHidden"
-                v-tooltip.left="
-                    sidebarToggled
-                        ? formatMessage(messages.collapseSidebar)
-                        : formatMessage(messages.expandSidebar)
-                "
-                class="sidebar-toggle-handle"
-                :aria-label="
-                    sidebarToggled
-                        ? formatMessage(messages.collapseSidebar)
-                        : formatMessage(messages.expandSidebar)
-                "
-                type="button"
-                @click="toggleSidebar"
-            >
-                <RightArrowIcon
-                    class="w-2.5 h-2.5 -translate-x-[1px] transition-transform duration-300"
-                    :class="{ 'rotate-180': !sidebarToggled }"
-                />
-            </button>
             <div
                 v-overlay-scrollbars="sidebarOverlayScrollbarsOptions"
                 class="app-sidebar-scrollable relative min-h-0 flex-1"
                 data-overlayscrollbars-initialize
             >
                 <div id="sidebar-teleport-target" class="sidebar-teleport-content contents"></div>
-                <div
-                    class="sidebar-default-content hidden"
-                    :class="{ 'sidebar-enabled': sidebarVisible }"
-                >
+                <div class="sidebar-default-content hidden">
                     <div
                         class="p-4 border-0 border-b-[1px] border-[--brand-gradient-border] border-solid"
                     >
@@ -3501,8 +3479,23 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
         @cancel="cancelBatchScan"
     />
 
+    <div
+        v-if="loginGateVisible"
+        data-tauri-drag-region
+        class="fixed inset-x-0 top-0 z-[100] flex h-12 justify-end bg-surface-2"
+    >
+        <WindowControls />
+    </div>
+    <div
+        v-if="loginGateVisible && !ysumcSessionChecked"
+        role="status"
+        class="fixed inset-0 z-[90] flex items-center justify-center bg-surface-1 text-primary"
+    >
+        正在验证登录…
+    </div>
+    <YsumcLoginGate v-if="loginGateVisible && ysumcSessionChecked" />
     <OnboardingOverlay
-        :visible="showOnboarding"
+        :visible="showOnboarding && ysumcSignedIn"
         :mode="onboardingMode"
         @complete="finishOnboarding"
         @skip="skipOnboarding"
@@ -3806,22 +3799,10 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 }
 
 .sidebar-toggle-handle {
-    --handle-bg: color-mix(
-        in srgb,
-        var(--color-brand) var(--opacity-ratio-keep-12),
-        var(--color-bg)
-    );
-    --handle-bg-hover: color-mix(
-        in srgb,
-        var(--color-brand) var(--opacity-ratio-keep-20),
-        var(--color-bg)
-    );
-    --handle-border: var(--brand-gradient-border);
-    --handle-border-hover: color-mix(
-        in srgb,
-        var(--color-brand) var(--opacity-ratio-keep-45),
-        transparent
-    );
+    --handle-bg: var(--color-brand);
+    --handle-bg-hover: color-mix(in srgb, var(--color-brand) 85%, var(--color-text-primary));
+    --handle-border: var(--color-accent-contrast);
+    --handle-border-hover: var(--color-accent-contrast);
 
     position: absolute;
     top: 50%;
@@ -3842,7 +3823,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
     border-radius: 12px 0 0 12px;
 
     background-color: var(--handle-bg);
-    color: var(--color-text-primary);
+    color: var(--color-accent-contrast);
     cursor: pointer;
 
     box-shadow: -4px 0 10px rgba(0, 0, 0, 0.08);
@@ -3853,7 +3834,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
         color 180ms ease;
 
     &:hover {
-        color: var(--color-button-text-selected);
+        color: var(--color-accent-contrast);
         background-color: var(--handle-bg-hover);
         border-color: var(--handle-border-hover);
     }

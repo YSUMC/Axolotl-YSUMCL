@@ -10,11 +10,17 @@ export const labRoutes: RouteRecordRaw[] = [
     {
         path: '/lab',
         name: 'Lab',
-        component: () => import('@/pages/Lab.vue'),
+        redirect: '/cloud-map',
         meta: {
             breadcrumb: [{ name: 'Lab' }],
             discordActivity: 'Messing with labs...',
         },
+    },
+    {
+        path: '/cloud-map',
+        name: 'CloudMap',
+        component: () => import('@/pages/CloudMap.vue'),
+        meta: { breadcrumb: [{ name: '云地图' }] },
     },
     {
         path: '/lab/skin-editor',
@@ -64,7 +70,7 @@ export const labRoutes: RouteRecordRaw[] = [
     {
         path: '/lab/mod-translation',
         name: 'ModTranslation',
-        component: () => import('@/pages/LabModTranslation.vue'),
+        redirect: '/lab',
         meta: {
             breadcrumb: [{ name: 'Lab', link: '/lab' }, { name: 'Mod translation' }],
             discordActivity: 'Messing with labs...',

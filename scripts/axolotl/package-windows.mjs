@@ -23,7 +23,7 @@ if (process.platform !== 'win32') throw new Error('Windows packaging requires Wi
 const profile = values.profile
 requireProfile(profile)
 const source = path.join(root, 'target', profile)
-const binary = requireFile(path.join(source, 'Axolotl Launcher.exe'))
+const binary = requireFile(path.join(source, 'YSUMC Launcher.exe'))
 const initialHash = sha256(binary)
 process.env.AXOLOTL_INSTALLER_UI_PATH = requireFile(path.join(source, 'axolotl-installer-ui.exe'))
 const destination = path.resolve(values.output)
@@ -34,7 +34,7 @@ process.env.CARGO_TARGET_DIR = target
 const releaseDirectory = path.join(target, 'release')
 fs.mkdirSync(releaseDirectory, { recursive: true })
 if (profile !== 'release')
-    fs.copyFileSync(binary, path.join(releaseDirectory, 'Axolotl Launcher.exe'))
+    fs.copyFileSync(binary, path.join(releaseDirectory, 'YSUMC Launcher.exe'))
 const bundleDirectory = path.join(releaseDirectory, 'bundle/nsis')
 
 for (const variant of ['modern', 'native']) {
@@ -62,7 +62,7 @@ for (const variant of ['modern', 'native']) {
     const installers = fs.readdirSync(bundleDirectory).filter((file) => file.endsWith('-setup.exe'))
     if (installers.length !== 1) throw new Error(`Expected one ${variant} installer`)
     const installer = path.join(bundleDirectory, installers[0])
-    const name = `Axolotl_Launcher_${version()}_x64_${variant === 'modern' ? 'modern' : 'nsis'}-setup.exe`
+    const name = `YSUMC_Launcher_${version()}_x64_${variant === 'modern' ? 'modern' : 'nsis'}-setup.exe`
     fs.copyFileSync(installer, path.join(destination, name))
     if (variant === 'native' && fs.existsSync(`${installer}.sig`)) {
         fs.copyFileSync(`${installer}.sig`, path.join(destination, `${name}.sig`))
@@ -83,7 +83,7 @@ for (const variant of ['modern', 'native']) {
 if (sha256(binary) !== initialHash) throw new Error('Packaging changed the compiled application')
 const portable = path.join(root, 'target', `portable-${profile}`, 'Axolotl')
 fs.mkdirSync(path.join(portable, '.Axolotl'), { recursive: true })
-fs.copyFileSync(binary, path.join(portable, 'Axolotl Launcher.exe'))
+fs.copyFileSync(binary, path.join(portable, 'YSUMC Launcher.exe'))
 requireFile(path.join(app, 'resources/seed-map/axolotl-cubiomes.dll'))
 fs.cpSync(path.join(app, 'resources/seed-map'), path.join(portable, 'resources/seed-map'), {
     recursive: true,
@@ -109,7 +109,7 @@ run(
             AXOLOTL_PORTABLE_SOURCE: portable,
             AXOLOTL_PORTABLE_ZIP: path.join(
                 destination,
-                `Axolotl_Launcher_${version()}_x64_portable.zip`,
+                `YSUMC_Launcher_${version()}_x64_portable.zip`,
             ),
         },
     },

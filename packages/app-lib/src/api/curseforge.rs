@@ -1106,8 +1106,14 @@ pub struct CurseForgeFingerprintResult {
 }
 
 pub fn capability() -> CurseForgeCapability {
-    let configured = api_key().is_some();
-    let status = if !configured {
+    let key_available = api_key().is_some();
+    let mirror_available = State::get_if_initialized().is_some_and(|state| {
+        state.curseforge_source() != DownloadSourceMode::OfficialOnly
+    });
+    let configured = key_available || mirror_available;
+    let status = if mirror_available {
+        CurseForgeCapabilityStatus::Ready
+    } else if !configured {
         CurseForgeCapabilityStatus::MissingKey
     } else if UNAUTHORIZED.load(Ordering::Relaxed) {
         CurseForgeCapabilityStatus::Unauthorized
@@ -9968,13 +9974,21 @@ async fn request_json<T: DeserializeOwned>(
 ) -> crate::Result<T> {
     let key = api_key();
     let state = State::get().await?;
-    let source_mode = if method != Method::GET
-        || mirror_policy == MirrorPolicy::OfficialOnly
-    {
-        DownloadSourceMode::OfficialOnly
-    } else {
-        state.curseforge_source()
-    };
+    let mirror_safe = method == Method::GET
+        || (method == Method::POST
+            && matches!(
+                path,
+                "/v1/mods"
+                    | "/v1/mods/files"
+                    | "/v1/fingerprints"
+                    | "/v1/fingerprints/432"
+            ));
+    let source_mode =
+        if !mirror_safe || mirror_policy == MirrorPolicy::OfficialOnly {
+            DownloadSourceMode::OfficialOnly
+        } else {
+            state.curseforge_source()
+        };
     let routes = request_routes_with_mode(path, source_mode);
     let mut last_error = None;
 
@@ -12003,6 +12017,23 @@ mod tests {
         assert_eq!(project_type_for_class(Some(4471)), "modpack");
         assert_eq!(project_type_for_class(Some(6552)), "shader");
         assert_eq!(project_type_for_class(Some(6945)), "datapack");
+    }
+
+    #[test]
+    fn curseforge_mirror_preferred_keeps_credentials_on_official_route() {
+        let routes =
+            request_routes("/v1/mods/search", MirrorPolicy::MirrorFirst);
+        assert_eq!(
+            routes[0].url,
+            "https://mod.mcimirror.top/curseforge/v1/mods/search"
+        );
+        assert!(!routes[0].use_api_key);
+        assert!(
+            routes
+                .iter()
+                .any(|route| route.source == RequestRouteSource::Official
+                    && route.use_api_key)
+        );
     }
 
     #[test]

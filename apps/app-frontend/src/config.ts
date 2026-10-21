@@ -1,22 +1,31 @@
 const trimTrailingSlash = (url: string) => url.replace(/\/$/, '')
 
 export const AxolotlBrandConfig = Object.freeze({
-    productName: 'Axolotl Launcher',
-    shortProductName: 'Axolotl',
-    website: 'https://www.axlmc.org/',
+    productName: 'YSUMC Launcher',
+    shortProductName: 'YSUMC',
+    website: 'https://ysumc.net/',
     repositoryUrl: 'https://github.com/Mystic-Stars/Axolotl',
-    supportUrl: 'https://github.com/Mystic-Stars/Axolotl/issues',
-    qqGroupNumber: '737601250',
-    qqChannelUrl: 'https://pd.qq.com/s/9nfp5rlz0',
-    sponsorUrl: 'https://afdian.com/a/Mystic-Stars',
-    bundleIdentifier: 'red.ghs.axolotl',
-    deepLinkScheme: 'axolotl',
-    userAgent: (version: string, os: string) => `garbage-human-studio/axolotl/${version} (${os})`,
+    supportUrl: 'https://ysumc.net/',
+    qqGroupNumber: '',
+    qqChannelUrl: 'https://ysumc.net/',
+    sponsorUrl: 'https://ysumc.net/',
+    bundleIdentifier: 'net.ysumc.launcher',
+    deepLinkScheme: 'ysumc',
+    userAgent: (version: string, os: string) => `ysumc/launcher/${version} (${os})`,
     capabilities: Object.freeze({
         publicModrinthApi: true,
         privateModrinthServices: false,
         ghsTelemetry: false,
+        ai: false,
     }),
+})
+
+export const YsumcConfig = Object.freeze({
+    siteUrl: 'https://skin.ysumc.net',
+    websiteUrl: 'https://ysumc.net',
+    manifestUrl: 'https://skin.ysumc.net/api/launcher/manifest',
+    announcementsUrl: 'https://skin.ysumc.net/api/launcher/announcements',
+    yggdrasilApiRoot: 'https://skin.ysumc.net/api/yggdrasil',
 })
 
 const siteUrl = trimTrailingSlash(import.meta.env.MODRINTH_URL || 'https://modrinth.com')

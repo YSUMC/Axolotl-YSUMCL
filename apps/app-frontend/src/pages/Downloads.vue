@@ -9,6 +9,9 @@
                     @tab-click="selectTab"
                 />
             </div>
+            <Button @click="router.push('/settings/content-downloads')"
+                >下载源 · CurseForge / Modrinth</Button
+            >
             <Button type="colored" color="brand" @click="router.push('/create')"
                 ><PlusIcon />
                 {{ formatMessage(messages.newDownload) }}

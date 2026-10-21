@@ -15,6 +15,7 @@ import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from 'vue
 import Draggable from 'vuedraggable'
 
 import type { RenderResult } from '@/helpers/rendering/batch-skin-renderer.ts'
+import { skinPreviewFailures } from '@/helpers/rendering/batch-skin-renderer.ts'
 import type { Skin } from '@/helpers/skins.ts'
 
 type SkinSectionKind = 'saved' | 'default'
@@ -53,6 +54,10 @@ const SKIN_SECTION_CONTENT_SPACING = 8
 const SKIN_SECTION_OVERSCAN = 900
 const FALLBACK_CARD_WIDTH = 220
 const messages = defineMessages({
+    previewFailed: {
+        id: 'ysumc.skins.preview-failed',
+        defaultMessage: '预览加载失败',
+    },
     savedSkinsSection: {
         id: 'app.skins.section.saved-skins',
         defaultMessage: 'Saved skins',
@@ -306,6 +311,11 @@ function savedSkinKey(skin: Skin) {
     return skinKey(skin, 'saved-skin')
 }
 
+function previewError(skin: Skin) {
+    const key = `${skin.texture_key}+${skin.variant}+${skin.cape_id ?? 'no-cape'}`
+    return skinPreviewFailures.has(key) ? formatMessage(messages.previewFailed) : undefined
+}
+
 function canDragSavedSkin(skin: Skin) {
     return skin.source === 'custom' || skin.source === 'custom_external'
 }
@@ -478,6 +488,7 @@ defineExpose({ getAddSkinButtonElement })
                             <SkinButton
                                 class="h-full w-full min-w-0 box-border rounded-[20px]"
                                 :forward-image-src="getBakedSkinTextures(skin)?.forwards"
+                                :loading-error="previewError(skin)"
                                 :selected="isSkinSelected(skin)"
                                 :active="isSkinActive(skin)"
                                 :disabled="readOnly"
@@ -521,6 +532,7 @@ defineExpose({ getAddSkinButtonElement })
                             <SkinButton
                                 class="h-full w-full min-w-0 box-border rounded-[20px]"
                                 :forward-image-src="getBakedSkinTextures(skin)?.forwards"
+                                :loading-error="previewError(skin)"
                                 :selected="isSkinSelected(skin)"
                                 :active="isSkinActive(skin)"
                                 :disabled="readOnly"
@@ -565,6 +577,7 @@ defineExpose({ getAddSkinButtonElement })
                         :key="skinKey(skin, section.key)"
                         class="aspect-[31/40] w-full min-w-0 box-border rounded-[20px]"
                         :forward-image-src="getBakedSkinTextures(skin)?.forwards"
+                        :loading-error="previewError(skin)"
                         :selected="isSkinSelected(skin)"
                         :active="isSkinActive(skin)"
                         :tooltip="skin.name"

@@ -82,6 +82,7 @@ async fn run_with_extra_launch_args_inner(
     extra_launch_args: Option<Vec<String>>,
     gc_intent: Option<GcLaunchIntent>,
 ) -> crate::Result<(ProcessMetadata, Option<GcLaunchReport>)> {
+    crate::managed::ensure_instance_runnable(instance_id).await?;
     if crate::api::instance::has_active_instance_operation(instance_id) {
         return Err(crate::ErrorKind::InputError(
 			"Wait for the active backup operation to finish before launching this instance"
@@ -124,8 +125,30 @@ async fn run_with_extra_launch_args_inner(
         crate::anti_piracy::ensure_offline_allowed().await?;
     }
 
+    if crate::managed::managed_owner(instance_id).await?.is_some() {
+        if !default_account.yggdrasil.as_ref().is_some_and(|server| {
+            server.api_root.trim_end_matches('/')
+                == crate::ysumc::YGGDRASIL_API_ROOT
+        }) {
+            return Err(crate::ErrorKind::InputError(
+                "请使用 YSUMC 账号启动官方整合包。".into(),
+            )
+            .into());
+        }
+        if !crate::api::process::get_by_instance_id(instance_id)
+            .await?
+            .is_empty()
+        {
+            return Err(crate::ErrorKind::InputError(
+                "该官方整合包已经在运行。".into(),
+            )
+            .into());
+        }
+    }
     tokio::time::timeout(
         Duration::from_secs(launch_preparation_timeout),
+        async {
+        crate::managed::verify_installed_mods(instance_id).await?;
         run_credentials(
             instance_id,
             &default_account,
@@ -134,7 +157,8 @@ async fn run_with_extra_launch_args_inner(
             extra_launch_args,
             gc_intent,
             launch_preparation_timeout,
-        ),
+        ).await
+        },
     )
     .await
     .map_err(|_| {

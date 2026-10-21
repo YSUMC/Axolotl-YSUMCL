@@ -193,7 +193,14 @@
             }}</template>
             <p class="m-0 p-4">{{ formatMessage(messages.packReconciliationWarningBody) }}</p>
         </CollapsibleAdmonition>
-        <ContentPageLayout @visible-items="handleVisibleItems">
+        <p
+            v-if="officialPack"
+            role="status"
+            class="border-0 border-l-4 border-solid border-brand bg-surface-2 p-4"
+        >
+            官方整合包的模组由服务器统一管理，每次启动自动校验。请从首页更新整合包；游戏设置可以正常调整。
+        </p>
+        <ContentPageLayout :inert="officialPack" @visible-items="handleVisibleItems">
             <template #toolbar-actions>
                 <Button
                     v-if="
@@ -382,6 +389,7 @@ import {
     localContentIconUrl,
     refreshInstanceContentUpdates,
 } from '@/helpers/instance-content'
+import { isManagedInstance, refreshManagedInstanceIds } from '@/helpers/managed'
 import { postUpgradeWarningForContent } from '@/helpers/post-upgrade-notice'
 import {
     confirmedContentGroupKey,
@@ -1154,6 +1162,8 @@ function invalidateContentRequests(clearState = false) {
     linkedModpackUpdateVersionId.value = null
     loading.value = false
 }
+void refreshManagedInstanceIds()
+const officialPack = computed(() => isManagedInstance(props.instance?.id))
 const isPackLocked = computed(
     () =>
         props.instance?.link?.type === 'modrinth_modpack' ||

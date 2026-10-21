@@ -298,6 +298,10 @@ const messages = defineMessages({
         id: 'app.settings.resources.curseforge-mirror-description',
         defaultMessage: 'CurseForge file downloads.',
     },
+    curseforgeMirrorPreferred: {
+        id: 'ysumc.downloads.curseforge-mirror-preferred',
+        defaultMessage: 'MCIM mirror preferred (official fallback)',
+    },
     curseforgeRestrictionBypass: {
         id: 'app.settings.resources.curseforge-restriction-bypass',
         defaultMessage: 'Automatically download restricted CurseForge files',
@@ -592,6 +596,7 @@ const modrinthSourceOptions = computed(() => [
 ])
 const curseforgeSourceOptions = computed(() => [
     automaticSourceOption.value,
+    { value: 'mirror_preferred', label: formatMessage(messages.curseforgeMirrorPreferred) },
     officialPreferredSourceOption.value,
     officialOnlySourceOption.value,
 ])

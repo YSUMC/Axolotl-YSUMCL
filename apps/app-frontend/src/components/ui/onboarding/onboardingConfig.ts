@@ -27,6 +27,25 @@ export type OnboardingStep = {
 }
 
 export const onboardingMessages = defineMessages({
+    ysumcWelcomeTitle: { id: 'ysumc.onboarding.welcome.title', defaultMessage: 'Welcome to YSUMC' },
+    ysumcWelcomeDescription: {
+        id: 'ysumc.onboarding.welcome.description',
+        defaultMessage: 'Start games, discover downloads, and manage skins here.',
+    },
+    ysumcAccountTitle: {
+        id: 'ysumc.onboarding.account.title',
+        defaultMessage: 'Your game account',
+    },
+    ysumcAccountDescription: {
+        id: 'ysumc.onboarding.account.description',
+        defaultMessage: 'See your current character, switch accounts, or open the skin site.',
+    },
+    ysumcPacksTitle: { id: 'ysumc.onboarding.packs.title', defaultMessage: 'Official modpacks' },
+    ysumcPacksDescription: {
+        id: 'ysumc.onboarding.packs.description',
+        defaultMessage:
+            'Install an official pack, then launch it here. Use the gear button for game settings.',
+    },
     mapAreaTitle: {
         id: 'app.onboarding.seed-map-area.title',
         defaultMessage: 'Analyze a selected area',
@@ -492,50 +511,12 @@ const copy = (
     action: MessageDescriptor,
 ) => ({ title, description, action })
 
-const control = (targetId: string, expectedPath?: string) => ({
-    targetId,
-    spotlight: 'control' as const,
-    ...(expectedPath ? { expectedPath } : {}),
-})
-
 const inspect = (
     id: string,
     targetId: string,
     title: MessageDescriptor,
     description: MessageDescriptor,
 ) => step(id, 'inspect', copy(title, description, onboardingMessages.continueArea), { targetId })
-
-const settingsTourSteps: Array<{
-    id: string
-    targetId: string
-    title: MessageDescriptor
-    description: MessageDescriptor
-}> = [
-    {
-        id: 'settings-interface',
-        targetId: 'settings-tab-interface',
-        title: onboardingMessages.appearanceTitle,
-        description: onboardingMessages.appearanceDescription,
-    },
-    {
-        id: 'settings-language-translation',
-        targetId: 'settings-tab-language-translation',
-        title: onboardingMessages.languageTitle,
-        description: onboardingMessages.languageDescription,
-    },
-    {
-        id: 'settings-launch-defaults',
-        targetId: 'settings-tab-launch-defaults',
-        title: onboardingMessages.defaultsTitle,
-        description: onboardingMessages.defaultsDescription,
-    },
-    {
-        id: 'settings-content-downloads',
-        targetId: 'settings-tab-content-downloads',
-        title: onboardingMessages.resourcesTitle,
-        description: onboardingMessages.resourcesDescription,
-    },
-]
 
 export const onboardingTours: Record<OnboardingMode, OnboardingStep[]> = {
     'seed-map': [
@@ -597,291 +578,22 @@ export const onboardingTours: Record<OnboardingMode, OnboardingStep[]> = {
             ),
         ),
         inspect(
-            'home-widget-grid',
-            'home-widget-grid',
-            onboardingMessages.homeWidgetsTitle,
-            onboardingMessages.homeWidgetsDescription,
+            'ysumc-welcome',
+            'ysumc-welcome',
+            onboardingMessages.ysumcWelcomeTitle,
+            onboardingMessages.ysumcWelcomeDescription,
         ),
         inspect(
-            'home-widget-customize',
-            'home-widget-customize',
-            onboardingMessages.homeCustomizeTitle,
-            onboardingMessages.homeCustomizeDescription,
+            'ysumc-account',
+            'ysumc-account',
+            onboardingMessages.ysumcAccountTitle,
+            onboardingMessages.ysumcAccountDescription,
         ),
         inspect(
-            'home-layout-switch',
-            'home-layout-switch',
-            onboardingMessages.homeLayoutTitle,
-            onboardingMessages.homeLayoutDescription,
-        ),
-        step(
-            'discover-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.discoverTitle,
-                onboardingMessages.discoverDescription,
-                onboardingMessages.clickDiscover,
-            ),
-            // Discover keeps the last project type, so the path is not fixed.
-            control('nav-discover'),
-        ),
-        inspect(
-            'discover-content',
-            'browse-content',
-            onboardingMessages.browseTitle,
-            onboardingMessages.browseDescription,
-        ),
-        step(
-            'discover-favorites-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.favoritesTitle,
-                onboardingMessages.favoritesDescription,
-                onboardingMessages.clickFavorites,
-            ),
-            control('browse-favorites-tab', '/browse/favorites'),
-        ),
-        inspect(
-            'discover-favorites-content',
-            'browse-favorites-content',
-            onboardingMessages.favoritesTitle,
-            onboardingMessages.favoritesDescription,
-        ),
-        step(
-            'skins-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.skinsTitle,
-                onboardingMessages.skinsDescription,
-                onboardingMessages.clickSkins,
-            ),
-            control('nav-skins', '/skins'),
-        ),
-        inspect(
-            'skins-page',
-            'skins-page',
-            onboardingMessages.skinsPageTitle,
-            onboardingMessages.skinsPageDescription,
-        ),
-        step(
-            'account',
-            'inspect',
-            copy(
-                onboardingMessages.accountTitle,
-                onboardingMessages.accountDescription,
-                onboardingMessages.continueArea,
-            ),
-            control('account-entry'),
-        ),
-        inspect(
-            'offline-account',
-            'offline-account-entry',
-            onboardingMessages.offlineAccountTitle,
-            onboardingMessages.offlineAccountDescription,
-        ),
-        step(
-            'lab-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.labTitle,
-                onboardingMessages.labDescription,
-                onboardingMessages.clickLab,
-            ),
-            control('nav-lab', '/lab'),
-        ),
-        inspect(
-            'lab-tools',
-            'lab-tools',
-            onboardingMessages.labToolsTitle,
-            onboardingMessages.labToolsDescription,
-        ),
-        step(
-            'lab-gradient-text-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.labEditorTitle,
-                onboardingMessages.labEditorDescription,
-                onboardingMessages.openGradientText,
-            ),
-            control('lab-gradient-text-card', '/lab/gradient-text'),
-        ),
-        inspect(
-            'lab-gradient-text-editor',
-            'lab-gradient-text-editor',
-            onboardingMessages.labEditorTitle,
-            onboardingMessages.labEditorDescription,
-        ),
-        step(
-            'lab-return-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.labSeedMapTitle,
-                onboardingMessages.labSeedMapDescription,
-                onboardingMessages.returnToLab,
-            ),
-            control('nav-lab', '/lab'),
-        ),
-        step(
-            'lab-seed-map-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.labSeedMapTitle,
-                onboardingMessages.labSeedMapDescription,
-                onboardingMessages.openSeedMap,
-            ),
-            control('lab-seed-map-card', '/lab/seed-map'),
-        ),
-        inspect(
-            'lab-seed-map-workspace',
-            'seed-map-workspace',
-            onboardingMessages.labSeedMapTitle,
-            onboardingMessages.labSeedMapDescription,
-        ),
-        step(
-            'lab-return-schematic-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.labSchematicTitle,
-                onboardingMessages.labSchematicDescription,
-                onboardingMessages.returnToLab,
-            ),
-            control('nav-lab', '/lab'),
-        ),
-        step(
-            'lab-schematic-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.labSchematicTitle,
-                onboardingMessages.labSchematicDescription,
-                onboardingMessages.openSchematicWorkshop,
-            ),
-            control('lab-schematic-preview-card', '/lab/schematic-preview'),
-        ),
-        inspect(
-            'lab-schematic-workspace',
-            'schematic-preview-workspace',
-            onboardingMessages.labSchematicTitle,
-            onboardingMessages.labSchematicDescription,
-        ),
-        step(
-            'lab-recipe-generator-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.labRecipeGeneratorTitle,
-                onboardingMessages.labRecipeGeneratorDescription,
-                onboardingMessages.openRecipeGenerator,
-            ),
-            control('lab-recipe-generator-card', '/lab/recipe-generator'),
-        ),
-        inspect(
-            'lab-recipe-generator-workspace',
-            'recipe-generator-workspace',
-            onboardingMessages.labRecipeGeneratorTitle,
-            onboardingMessages.labRecipeGeneratorDescription,
-        ),
-        inspect(
-            'downloads-tabs',
-            'downloads-tabs',
-            onboardingMessages.downloadsPageTitle,
-            onboardingMessages.downloadsPageDescription,
-        ),
-        step(
-            'settings-navigation',
-            'activate',
-            copy(
-                onboardingMessages.settingsTitle,
-                onboardingMessages.settingsDescription,
-                onboardingMessages.clickSettings,
-            ),
-            control('nav-settings', '/settings'),
-        ),
-        ...settingsTourSteps.map((entry, index) =>
-            step(
-                entry.id,
-                'activate',
-                copy(entry.title, entry.description, onboardingMessages.clickTab),
-                {
-                    ...control(entry.targetId),
-                    closeSettingsAfter: index === settingsTourSteps.length - 1,
-                },
-            ),
-        ),
-        step(
-            'library-navigation',
-            'navigate',
-            copy(
-                onboardingMessages.libraryTitle,
-                onboardingMessages.libraryDescription,
-                onboardingMessages.clickLibrary,
-            ),
-            control('nav-library', '/library'),
-        ),
-        inspect(
-            'library-content',
-            'library-content',
-            onboardingMessages.libraryPageTitle,
-            onboardingMessages.libraryPageDescription,
-        ),
-        step(
-            'create-instance',
-            'navigate',
-            copy(
-                onboardingMessages.createTitle,
-                onboardingMessages.createDescription,
-                onboardingMessages.clickCreate,
-            ),
-            control('create-instance', '/create'),
-        ),
-        step(
-            'creation-flow',
-            'activate',
-            copy(
-                onboardingMessages.creationTitle,
-                onboardingMessages.creationDescription,
-                onboardingMessages.clickCreationMethod,
-            ),
-            {
-                targetId: 'creation-methods',
-                branchByTarget: {
-                    'creation-method-custom': { creationPath: 'custom', next: 'creation-name' },
-                    'creation-method-import': { next: 'complete' },
-                },
-            },
-        ),
-        inspect(
-            'creation-name',
-            'creation-name',
-            onboardingMessages.creationNameTitle,
-            onboardingMessages.creationNameDescription,
-        ),
-        inspect(
-            'creation-loader',
-            'creation-loader',
-            onboardingMessages.creationLoaderTitle,
-            onboardingMessages.creationLoaderDescription,
-        ),
-        step(
-            'creation-version',
-            'inspect',
-            copy(
-                onboardingMessages.creationVersionTitle,
-                onboardingMessages.creationVersionDescription,
-                onboardingMessages.continueArea,
-            ),
-            {
-                targetId: 'creation-game-version',
-                nextByCreationPath: { custom: 'creation-confirm' },
-            },
-        ),
-        step(
-            'creation-confirm',
-            'inspect',
-            copy(
-                onboardingMessages.creationConfirmTitle,
-                onboardingMessages.creationConfirmDescription,
-                onboardingMessages.finishArea,
-            ),
-            { targetId: 'creation-confirm' },
+            'ysumc-packs',
+            'ysumc-official-packs',
+            onboardingMessages.ysumcPacksTitle,
+            onboardingMessages.ysumcPacksDescription,
         ),
     ],
     instance: [

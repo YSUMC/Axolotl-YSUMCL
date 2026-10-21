@@ -26,6 +26,13 @@ use theseus::server_address::ServerAddress;
 pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("instance")
         .invoke_handler(tauri::generate_handler![
+            managed_fetch_manifest,
+            managed_sync,
+            managed_list,
+            managed_mark_installed,
+            managed_register_instance,
+            managed_ensure_runnable,
+            managed_install,
             instance_remove,
             instance_get_backup_repository_status,
             instance_move_backup_repository,
@@ -1660,6 +1667,7 @@ pub async fn instance_add_project_from_path(
     project_type: Option<ProjectType>,
     inner_base: Option<String>,
 ) -> Result<String> {
+    theseus::managed::ensure_content_editable(instance_id).await?;
     Ok(theseus::instance::add_project_from_path(
         instance_id,
         project_path,
@@ -1721,6 +1729,7 @@ pub async fn instance_toggle_disable_project(
     project_path: &str,
     desired_enabled: Option<bool>,
 ) -> Result<String> {
+    theseus::managed::ensure_content_editable(instance_id).await?;
     Ok(theseus::instance::toggle_disable_project(
         instance_id,
         project_path,
@@ -1735,6 +1744,7 @@ pub async fn instance_toggle_content_entry(
     content_id: &str,
     desired_enabled: Option<bool>,
 ) -> Result<String> {
+    theseus::managed::ensure_content_editable(instance_id).await?;
     Ok(theseus::instance::toggle_content_entry(
         instance_id,
         content_id,
@@ -1749,6 +1759,7 @@ pub async fn instance_toggle_content_entries(
     content_ids: Vec<String>,
     desired_enabled: Option<bool>,
 ) -> Result<Vec<theseus::instance::ContentToggleResult>> {
+    theseus::managed::ensure_content_editable(instance_id).await?;
     Ok(theseus::instance::toggle_content_entries(
         instance_id,
         content_ids,
@@ -1762,6 +1773,7 @@ pub async fn instance_rollback_project(
     instance_id: &str,
     project_path: &str,
 ) -> Result<String> {
+    theseus::managed::ensure_content_editable(instance_id).await?;
     Ok(theseus::instance::rollback_project(instance_id, project_path).await?)
 }
 
@@ -1770,6 +1782,7 @@ pub async fn instance_remove_project(
     instance_id: &str,
     project_path: &str,
 ) -> Result<()> {
+    theseus::managed::ensure_content_editable(instance_id).await?;
     theseus::instance::remove_project(instance_id, project_path).await?;
     Ok(())
 }
@@ -1779,6 +1792,7 @@ pub async fn instance_remove_content_entry(
     instance_id: &str,
     content_id: &str,
 ) -> Result<()> {
+    theseus::managed::ensure_content_editable(instance_id).await?;
     theseus::instance::remove_content_entry(instance_id, content_id).await?;
     Ok(())
 }
@@ -1790,6 +1804,7 @@ pub async fn instance_queue_content_change(
     display_title: String,
     display_icon: Option<String>,
 ) -> Result<theseus::install::InstallJobSnapshot> {
+    theseus::managed::ensure_content_editable(instance_id).await?;
     Ok(theseus::install::queue_content_change(
         instance_id.to_string(),
         intent,
@@ -1804,6 +1819,7 @@ pub async fn instance_restore_pack_member_default(
     instance_id: &str,
     member_id: &str,
 ) -> Result<Option<String>> {
+    theseus::managed::ensure_content_editable(instance_id).await?;
     Ok(
         theseus::instance::restore_pack_member_default(instance_id, member_id)
             .await?,
@@ -1815,6 +1831,7 @@ pub async fn instance_update_managed_modrinth_version(
     instance_id: String,
     version_id: String,
 ) -> Result<theseus::install::InstallJobSnapshot> {
+    theseus::managed::ensure_content_editable(&instance_id).await?;
     Ok(theseus::instance::update_managed_modrinth_version(
         &instance_id,
         &version_id,
@@ -1826,6 +1843,7 @@ pub async fn instance_update_managed_modrinth_version(
 pub async fn instance_repair_managed_modrinth(
     instance_id: &str,
 ) -> Result<theseus::install::InstallJobSnapshot> {
+    theseus::managed::ensure_content_editable(instance_id).await?;
     Ok(theseus::instance::repair_managed_modrinth(instance_id).await?)
 }
 
@@ -1864,6 +1882,15 @@ pub async fn instance_edit(
     instance_id: &str,
     edit_instance: EditInstance,
 ) -> Result<()> {
+    if edit_instance.game_version.is_some()
+        || edit_instance.loader.is_some()
+        || edit_instance.loader_version.is_some()
+        || edit_instance.link.is_some()
+        || edit_instance.game_dir_override.is_some()
+    {
+        theseus::managed::ensure_content_editable(instance_id).await?;
+    }
+
     theseus::instance::edit(instance_id, edit_to_core(edit_instance)?).await?;
     Ok(())
 }
@@ -1947,4 +1974,67 @@ pub async fn instance_update_group_memberships(
     updates: Vec<InstanceGroupMembershipChange>,
 ) -> Result<()> {
     Ok(theseus::instance::update_group_memberships(updates).await?)
+}
+
+#[tauri::command]
+pub async fn managed_fetch_manifest(
+    manifest_url: String,
+) -> Result<theseus::managed::ManagedManifest> {
+    Ok(theseus::managed::fetch_manifest(&manifest_url).await?)
+}
+
+#[tauri::command]
+pub async fn managed_sync(
+    manifest_url: String,
+) -> Result<theseus::managed::ManagedSyncReport> {
+    Ok(theseus::managed::sync_manifest(&manifest_url).await?)
+}
+
+#[tauri::command]
+pub async fn managed_list()
+-> Result<Vec<theseus::managed::ManagedInstanceRecord>> {
+    Ok(theseus::managed::list_managed_instances().await?)
+}
+
+#[tauri::command]
+pub async fn managed_install(
+    server_instance_id: String,
+) -> Result<theseus::install::InstallJobSnapshot> {
+    Ok(theseus::managed::install_official(&server_instance_id).await?)
+}
+
+#[tauri::command]
+pub async fn managed_mark_installed(
+    server_instance_id: String,
+    instance_id: String,
+    revision: i64,
+) -> Result<()> {
+    theseus::managed::mark_instance_installed(
+        &server_instance_id,
+        &instance_id,
+        revision,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn managed_register_instance(
+    server_instance_id: String,
+    instance_id: String,
+    revision: i64,
+) -> Result<()> {
+    theseus::managed::register_instance(
+        &server_instance_id,
+        &instance_id,
+        revision,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn managed_ensure_runnable(instance_id: String) -> Result<()> {
+    theseus::managed::ensure_instance_runnable(&instance_id).await?;
+    Ok(())
 }

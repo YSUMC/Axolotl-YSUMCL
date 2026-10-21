@@ -16,6 +16,7 @@ import {
     type RenderResult,
     setActiveSkinPreviews,
     skinBlobUrlMap,
+    skinPreviewFailures,
 } from './batch-skin-renderer'
 
 class BatchSkinRenderer {
@@ -257,8 +258,8 @@ async function generateSkinPreviewsForGeneration(
         const headKeys = skins.map((skin) => getHeadRenderKey(skin.texture_key))
 
         const [cachedSkinPreviews, cachedHeadPreviews] = await Promise.all([
-            skinPreviewStorage.batchRetrieve(skinKeys),
-            headStorage.batchRetrieve(headKeys),
+            skinPreviewStorage.batchRetrieve(skinKeys).catch(() => ({})),
+            headStorage.batchRetrieve(headKeys).catch(() => ({})),
         ])
 
         if (!isCurrentGeneration()) return
@@ -267,7 +268,9 @@ async function generateSkinPreviewsForGeneration(
             const skinKey = skinKeys[i]
             const headKey = headKeys[i]
 
-            const rawCached = cachedSkinPreviews[skinKey]
+            const rawCached = (cachedSkinPreviews as Record<string, RawRenderResult | null>)[
+                skinKey
+            ]
             if (rawCached && !skinBlobUrlMap.has(skinKey)) {
                 const cached: RenderResult = {
                     forwards: URL.createObjectURL(rawCached.forwards),
@@ -275,7 +278,7 @@ async function generateSkinPreviewsForGeneration(
                 skinBlobUrlMap.set(skinKey, cached)
             }
 
-            const cachedHead = cachedHeadPreviews[headKey]
+            const cachedHead = (cachedHeadPreviews as Record<string, Blob | null>)[headKey]
             if (cachedHead && !headBlobUrlMap.has(headKey)) {
                 headBlobUrlMap.set(headKey, URL.createObjectURL(cachedHead))
             }
@@ -285,6 +288,7 @@ async function generateSkinPreviewsForGeneration(
             if (!isCurrentGeneration()) return
 
             const key = `${skin.texture_key}+${skin.variant}+${skin.cape_id ?? 'no-cape'}`
+            skinPreviewFailures.delete(key)
 
             if (skinBlobUrlMap.has(key)) {
                 if (DEBUG_MODE) {
@@ -294,43 +298,51 @@ async function generateSkinPreviewsForGeneration(
                 } else continue
             }
 
-            const renderer = await getSharedRenderer()
-
-            let variant = skin.variant
-            if (variant === 'UNKNOWN') {
-                try {
-                    variant = await determineModelType(skin.texture)
-                } catch (error) {
-                    console.error(`Failed to determine model type for skin ${key}:`, error)
-                    variant = 'CLASSIC'
-                }
-            }
-
-            const modelUrl = getModelUrlForVariant(variant)
-            const cape: Cape | undefined = capes.find((_cape) => _cape.id === skin.cape_id)
-            const rawRenderResult = await renderer.renderSkin(
-                await get_normalized_skin_texture(skin),
-                modelUrl,
-                cape?.texture,
-            )
-
-            if (!isCurrentGeneration()) return
-
-            const renderResult: RenderResult = {
-                forwards: URL.createObjectURL(rawRenderResult.forwards),
-            }
-
-            skinBlobUrlMap.set(key, renderResult)
-
             try {
-                await skinPreviewStorage.store(key, rawRenderResult)
-            } catch (error) {
-                console.warn('Failed to store skin preview in persistent storage:', error)
-            }
+                const renderer = await getSharedRenderer()
 
-            const headKey = getHeadRenderKey(skin.texture_key)
-            if (!headBlobUrlMap.has(headKey)) {
-                await generateHeadRender(skin)
+                let variant = skin.variant
+                if (variant === 'UNKNOWN') {
+                    try {
+                        variant = await determineModelType(await get_normalized_skin_texture(skin))
+                    } catch (error) {
+                        console.error(`Failed to determine model type for skin ${key}:`, error)
+                        variant = 'CLASSIC'
+                    }
+                }
+
+                const modelUrl = getModelUrlForVariant(variant)
+                const cape: Cape | undefined = capes.find((_cape) => _cape.id === skin.cape_id)
+                const rawRenderResult = await renderer.renderSkin(
+                    await get_normalized_skin_texture(skin),
+                    modelUrl,
+                    cape?.texture,
+                )
+
+                if (!isCurrentGeneration()) return
+
+                const renderResult: RenderResult = {
+                    forwards: URL.createObjectURL(rawRenderResult.forwards),
+                }
+
+                skinBlobUrlMap.set(key, renderResult)
+
+                try {
+                    await skinPreviewStorage.store(key, rawRenderResult)
+                } catch (error) {
+                    console.warn('Failed to store skin preview in persistent storage:', error)
+                }
+
+                const headKey = getHeadRenderKey(skin.texture_key)
+                if (!headBlobUrlMap.has(headKey)) {
+                    await generateHeadRender(skin).catch((error) => {
+                        console.warn('Failed to generate skin head:', error)
+                    })
+                }
+            } catch (error) {
+                if (!isCurrentGeneration()) return
+                skinPreviewFailures.add(key)
+                console.warn(`Failed to generate skin preview ${key}:`, error)
             }
         }
     } finally {

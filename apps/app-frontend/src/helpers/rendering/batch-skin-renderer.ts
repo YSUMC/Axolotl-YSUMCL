@@ -14,6 +14,7 @@ export interface RawRenderResult {
 }
 
 export const skinBlobUrlMap = reactive(new Map<string, RenderResult>())
+export const skinPreviewFailures = reactive(new Set<string>())
 export const headBlobUrlMap = reactive(new Map<string, string>())
 const headRenderPromises = new Map<string, Promise<string>>()
 const retainedHeads = new Map<symbol, Set<string>>()
@@ -30,6 +31,9 @@ export function retainPlayerHeadTextures(textureKeys: readonly string[]): () => 
 }
 
 export function pruneSkinPreviewMemory() {
+    for (const key of skinPreviewFailures) {
+        if (!activeSkinKeys.has(key)) skinPreviewFailures.delete(key)
+    }
     for (const [key, preview] of skinBlobUrlMap) {
         if (activeSkinKeys.has(key)) continue
         skinBlobUrlMap.delete(key)

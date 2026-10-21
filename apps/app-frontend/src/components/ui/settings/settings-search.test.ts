@@ -164,7 +164,7 @@ test('developer-only settings stay out of the normal search categories', () => {
     )
 })
 
-test('settings navigation groups preserve the intended Axolotl information architecture', () => {
+test('settings navigation groups preserve YSUMC navigation with AI disabled', () => {
     const categoriesForGroup = (
         group: 'launcher' | 'game' | 'data-privacy' | 'support' | 'developer',
         developerMode = false,
@@ -178,8 +178,8 @@ test('settings navigation groups preserve the intended Axolotl information archi
         'home-navigation',
         'shortcut-settings',
         'language-translation',
-        'ai',
     ])
+    assert.equal(categoriesForGroup('launcher', true).includes('ai'), false)
     assert.deepEqual(categoriesForGroup('game'), [
         'launch-defaults',
         'instance-sync',

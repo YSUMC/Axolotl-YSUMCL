@@ -1,14 +1,14 @@
-pub const PRODUCT_NAME: &str = "Axolotl Launcher";
-pub const SHORT_PRODUCT_NAME: &str = "Axolotl";
-pub const WEBSITE: &str = "https://www.ghs.red";
-pub const BUNDLE_IDENTIFIER: &str = "red.ghs.axolotl";
-pub const DEEP_LINK_SCHEME: &str = "axolotl";
+pub const PRODUCT_NAME: &str = "YSUMC Launcher";
+pub const SHORT_PRODUCT_NAME: &str = "YSUMC";
+pub const WEBSITE: &str = "https://ysumc.net";
+pub const BUNDLE_IDENTIFIER: &str = "net.ysumc.launcher";
+pub const DEEP_LINK_SCHEME: &str = "ysumc";
 
 /// Longest accepted data directory suffix; enough to name a branch or a build.
 const MAX_DATA_DIR_SUFFIX_LEN: usize = 32;
 
 pub fn user_agent(version: &str, os: &str) -> String {
-    format!("garbage-human-studio/axolotl/{version} ({os})")
+    format!("ysumc/launcher/{version} ({os})")
 }
 
 /// Name of the directory the launcher keeps its settings, databases and logs in.
@@ -64,7 +64,7 @@ mod tests {
     fn user_agent_is_unique_and_contains_no_contact_information() {
         let user_agent = user_agent("1.2.3", "windows");
 
-        assert_eq!(user_agent, "garbage-human-studio/axolotl/1.2.3 (windows)");
+        assert_eq!(user_agent, "ysumc/launcher/1.2.3 (windows)");
         assert!(!user_agent.contains("ghs.red"));
         assert!(!user_agent.contains("http"));
         assert!(!user_agent.contains('@'));
@@ -73,20 +73,20 @@ mod tests {
     #[test]
     fn data_dir_identifier_without_suffix_keeps_the_identifier() {
         assert_eq!(
-            data_dir_identifier("red.ghs.axolotl", None),
-            "red.ghs.axolotl"
+            data_dir_identifier("net.ysumc.launcher", None),
+            "net.ysumc.launcher"
         );
     }
 
     #[test]
     fn data_dir_identifier_appends_a_readable_suffix() {
         for (suffix, expected) in [
-            ("pr538", "red.ghs.axolotl-pr538"),
-            ("fix_issue_538", "red.ghs.axolotl-fix_issue_538"),
-            ("v1.2.3", "red.ghs.axolotl-v1.2.3"),
+            ("pr538", "net.ysumc.launcher-pr538"),
+            ("fix_issue_538", "net.ysumc.launcher-fix_issue_538"),
+            ("v1.2.3", "net.ysumc.launcher-v1.2.3"),
         ] {
             assert_eq!(
-                data_dir_identifier("red.ghs.axolotl", Some(suffix)),
+                data_dir_identifier("net.ysumc.launcher", Some(suffix)),
                 expected,
                 "unexpected identifier for suffix {suffix:?}"
             );
@@ -109,7 +109,7 @@ mod tests {
             "..-.-",
         ] {
             let identifier =
-                data_dir_identifier("red.ghs.axolotl", Some(suffix));
+                data_dir_identifier("net.ysumc.launcher", Some(suffix));
 
             assert!(
                 !identifier.contains(['/', '\\', ':']),
@@ -121,7 +121,7 @@ mod tests {
             );
 
             let remainder = identifier
-                .strip_prefix("red.ghs.axolotl-")
+                .strip_prefix("net.ysumc.launcher-")
                 .map_or(identifier.as_str(), |remainder| remainder);
             assert!(
                 !remainder.is_empty() && remainder != "." && remainder != "..",
@@ -136,8 +136,8 @@ mod tests {
         // one. The identifier always carries the prefix, so it never is.
         for suffix in ["CON", "NUL", "PRN", "AUX", "COM1", "LPT1"] {
             assert_eq!(
-                data_dir_identifier("red.ghs.axolotl", Some(suffix)),
-                format!("red.ghs.axolotl-{suffix}")
+                data_dir_identifier("net.ysumc.launcher", Some(suffix)),
+                format!("net.ysumc.launcher-{suffix}")
             );
         }
     }
@@ -145,18 +145,18 @@ mod tests {
     #[test]
     fn data_dir_identifier_drops_characters_that_are_unsafe_in_a_path() {
         for (suffix, expected) in [
-            ("a b", "red.ghs.axolotl-ab"),
-            ("a:b", "red.ghs.axolotl-ab"),
+            ("a b", "net.ysumc.launcher-ab"),
+            ("a:b", "net.ysumc.launcher-ab"),
             // Fullwidth solidus: not a separator the filesystem honours, but no
             // more welcome in a directory name than any other non-ASCII.
-            ("a\u{ff0f}b", "red.ghs.axolotl-ab"),
+            ("a\u{ff0f}b", "net.ysumc.launcher-ab"),
             // Every non-ASCII character goes, so a suffix typed in another
             // script keeps only its ASCII part - which may be nothing at all.
-            ("版本v2", "red.ghs.axolotl-v2"),
-            ("版本", "red.ghs.axolotl"),
+            ("版本v2", "net.ysumc.launcher-v2"),
+            ("版本", "net.ysumc.launcher"),
         ] {
             assert_eq!(
-                data_dir_identifier("red.ghs.axolotl", Some(suffix)),
+                data_dir_identifier("net.ysumc.launcher", Some(suffix)),
                 expected,
                 "unexpected identifier for suffix {suffix:?}"
             );
@@ -170,8 +170,8 @@ mod tests {
         let suffix = format!("{}abc", ".".repeat(40));
 
         assert_eq!(
-            data_dir_identifier("red.ghs.axolotl", Some(&suffix)),
-            "red.ghs.axolotl-abc"
+            data_dir_identifier("net.ysumc.launcher", Some(&suffix)),
+            "net.ysumc.launcher-abc"
         );
     }
 
@@ -179,8 +179,8 @@ mod tests {
     fn data_dir_identifier_ignores_unusable_suffixes() {
         for suffix in ["", "   ", "..", "--", "///", "..-.-"] {
             assert_eq!(
-                data_dir_identifier("red.ghs.axolotl", Some(suffix)),
-                "red.ghs.axolotl",
+                data_dir_identifier("net.ysumc.launcher", Some(suffix)),
+                "net.ysumc.launcher",
                 "suffix {suffix:?} should have been ignored"
             );
         }
@@ -189,11 +189,14 @@ mod tests {
     #[test]
     fn data_dir_identifier_bounds_the_suffix_length() {
         let identifier =
-            data_dir_identifier("red.ghs.axolotl", Some(&"a".repeat(200)));
+            data_dir_identifier("net.ysumc.launcher", Some(&"a".repeat(200)));
 
         assert_eq!(
             identifier,
-            format!("red.ghs.axolotl-{}", "a".repeat(MAX_DATA_DIR_SUFFIX_LEN))
+            format!(
+                "net.ysumc.launcher-{}",
+                "a".repeat(MAX_DATA_DIR_SUFFIX_LEN)
+            )
         );
     }
 }

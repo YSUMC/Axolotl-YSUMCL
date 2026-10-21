@@ -271,6 +271,7 @@ fn build_seed_map_engine() {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=YSUMC_UPDATER_PUBLIC_KEY");
     println!("cargo:rerun-if-env-changed=CI");
     println!("cargo:rerun-if-changed=tauri.conf.json");
     println!("cargo:rerun-if-changed=tauri.windows.conf.json");
@@ -321,6 +322,9 @@ fn main() {
                         "browser_login",
                         "begin_device_login",
                         "poll_device_login",
+                        "begin_ysumc_device_login",
+                        "poll_ysumc_device_login",
+                        "validate_ysumc_session",
                         "begin_yggdrasil_login",
                         "finish_yggdrasil_login",
                         "list_yggdrasil_saved_logins",
@@ -767,6 +771,13 @@ fn main() {
                         "instance_restore_pack_member_default",
                         "instance_update_managed_modrinth_version",
                         "instance_repair_managed_modrinth",
+                        "managed_fetch_manifest",
+                        "managed_sync",
+                        "managed_list",
+                        "managed_mark_installed",
+                        "managed_register_instance",
+                        "managed_ensure_runnable",
+                        "managed_install",
                         "instance_run",
                         "instance_kill",
                         "instance_edit",

@@ -616,6 +616,7 @@ pub async fn update_managed_modrinth_version(
             content_project_id,
             ..
         } => Some(crate::install::InstallPostInstallEdit {
+            official: None,
             name: Some(metadata.instance.name.clone()),
             icon_path: Some(metadata.instance.icon_path.clone()),
             link: Some(crate::state::InstanceLink::ServerProjectModpack {
@@ -670,6 +671,7 @@ pub async fn repair_managed_modrinth(
     let post_install_edit = match &metadata.link {
         crate::state::InstanceLink::ServerProjectModpack { .. } => {
             Some(crate::install::InstallPostInstallEdit {
+                official: None,
                 name: Some(metadata.instance.name.clone()),
                 icon_path: Some(metadata.instance.icon_path.clone()),
                 link: Some(metadata.link.clone()),

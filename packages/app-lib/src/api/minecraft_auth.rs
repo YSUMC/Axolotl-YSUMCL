@@ -339,6 +339,19 @@ pub async fn users(offline_mode: bool) -> crate::Result<Vec<MinecraftUser>> {
     users_with_cache(offline_mode, false).await
 }
 
+pub async fn validate_ysumc_session() -> crate::Result<Option<String>> {
+    let state = State::get().await?;
+    let credential = Credentials::get_default_credential(&state.pool).await?;
+    Ok(credential
+        .filter(|account| {
+            account.yggdrasil.as_ref().is_some_and(|server| {
+                server.api_root.trim_end_matches('/')
+                    == crate::ysumc::YGGDRASIL_API_ROOT
+            })
+        })
+        .map(|account| account.account_id()))
+}
+
 /// Reads saved account and skin metadata without refreshing tokens or making
 /// profile requests when `cached_only` is set.
 pub async fn users_with_cache(
@@ -386,4 +399,17 @@ mod tests {
     fn reachability_budget_leaves_room_for_a_slow_but_working_connection() {
         assert!(REACHABILITY_TIMEOUT > Duration::from_secs(6));
     }
+}
+
+pub use crate::state::{YsumcDeviceLoginFlow, YsumcDeviceLoginPoll};
+
+pub async fn begin_ysumc_device_login() -> crate::Result<YsumcDeviceLoginFlow> {
+    crate::state::begin_ysumc_device_login().await
+}
+
+pub async fn poll_ysumc_device_login(
+    flow_id: Uuid,
+) -> crate::Result<YsumcDeviceLoginPoll> {
+    let state = State::get().await?;
+    crate::state::poll_ysumc_device_login(flow_id, &state.pool).await
 }

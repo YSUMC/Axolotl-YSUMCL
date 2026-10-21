@@ -174,24 +174,53 @@ async fn normalize_skin_texture_with_options(
         decoder.read_info()
     }?;
 
-    // The code below assumes that the skin texture has valid dimensions.
-    // This also serves as a way to bail out early for obviously invalid or
-    // adversarial textures
-    if png_reader.info().width != 64
-        || ![64, 32].contains(&png_reader.info().height)
-    {
+    let width = png_reader.info().width;
+    let height = png_reader.info().height;
+    // HD textures from skin sites are reduced only for the preview. Keep the
+    // vanilla upload path strict and bound decoding before allocating pixels.
+    let valid_width = width == 64
+        || (preserve_inner_alpha
+            && width > 64
+            && width <= 2048
+            && width % 64 == 0);
+    if !valid_width || (height != width && height != width / 2) {
         Err(ErrorKind::InvalidSkinTexture)?;
     }
 
-    let is_legacy_skin = png_reader.info().height == 32;
-    let mut texture_buf =
-        get_skin_texture_buffer(&mut png_reader, is_legacy_skin)?;
+    let is_legacy_skin = height == width / 2;
+    let source = get_skin_texture_buffer(&mut png_reader, false)?;
+    let scale = (width / 64) as usize;
+    let mut texture_buf = if scale == 1 {
+        source
+    } else {
+        // Nearest-neighbour sampling preserves pixel boundaries and alpha.
+        (0..height as usize / scale)
+            .flat_map(|y| {
+                let source = &source;
+                (0..64).map(move |x| {
+                    source[(y * scale + scale / 2) * width as usize
+                        + x * scale
+                        + scale / 2]
+                })
+            })
+            .collect()
+    };
+    texture_buf.resize(
+        64 * 64,
+        Rgba {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        },
+    );
+    let normalized_info = png::Info::with_size(64, 64);
     if is_legacy_skin {
-        convert_legacy_skin_texture(&mut texture_buf, png_reader.info());
-        do_notch_transparency_hack(&mut texture_buf, png_reader.info());
+        convert_legacy_skin_texture(&mut texture_buf, &normalized_info);
+        do_notch_transparency_hack(&mut texture_buf, &normalized_info);
     }
     if !preserve_inner_alpha {
-        make_inner_parts_opaque(&mut texture_buf, png_reader.info());
+        make_inner_parts_opaque(&mut texture_buf, &normalized_info);
     }
 
     let mut encoded_png = vec![];
@@ -526,4 +555,48 @@ fn creates_legacy_client_skin_texture() {
         to_legacy_client_texture(texture).expect("Failed to crop skin");
 
     assert_eq!(dimensions(&legacy_texture).unwrap(), (64, 32));
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn preview_normalizes_hd_modern_and_legacy_without_relaxing_uploads() {
+    for height in [32_u32, 64] {
+        let pixels: Vec<u8> = (0..height)
+            .flat_map(|y| (0..64).flat_map(move |x| [x as u8, y as u8, 99, 83]))
+            .collect();
+        let encode = |width, height, data: &[u8]| {
+            let mut png = Vec::new();
+            let mut encoder = png::Encoder::new(&mut png, width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(data).unwrap();
+            writer.finish().unwrap();
+            png
+        };
+        let baseline = encode(64, height, &pixels);
+        let expected = normalize_skin_texture_for_preview(&UrlOrBlob::Blob(
+            baseline.into(),
+        ))
+        .await
+        .unwrap();
+        for scale in [2_u32, 4, 8] {
+            let mut hd_pixels = Vec::new();
+            for y in 0..height * scale {
+                for x in 0..64 * scale {
+                    let offset = ((y / scale * 64 + x / scale) * 4) as usize;
+                    hd_pixels.extend_from_slice(&pixels[offset..offset + 4]);
+                }
+            }
+            let hd = UrlOrBlob::Blob(
+                encode(64 * scale, height * scale, &hd_pixels).into(),
+            );
+            let actual = normalize_skin_texture_for_preview(&hd).await.unwrap();
+            assert_eq!(
+                actual, expected,
+                "layout height {height}, scale {scale}"
+            );
+            assert!(normalize_skin_texture(&hd).await.is_err());
+        }
+    }
 }

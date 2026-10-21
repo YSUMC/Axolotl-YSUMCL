@@ -63,7 +63,8 @@ generated
 *.d1
 *.dump.sql
 access-jwt*.txt
-/docs/
+/docs/*
+!/docs/launcher-protocol.md
 .vercel/
 
 .astro
@@ -122,3 +123,5 @@ apps/app/resources/blockbench-skin/
 start-dev.ps1
 
 apps/app/resources/seed-map/
+
+/.ysumc-signing/

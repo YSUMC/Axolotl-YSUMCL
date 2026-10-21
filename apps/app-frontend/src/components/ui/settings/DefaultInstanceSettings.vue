@@ -7,7 +7,6 @@ import EnvironmentVariablesInput from '@/components/ui/EnvironmentVariablesInput
 import { get, update } from '@/helpers/settings.ts'
 import { createSettingsPatchSaver } from '@/helpers/settings-patch'
 
-import LogShareSettings from './LogShareSettings.vue'
 import SettingsRow from './SettingsRow.vue'
 import SettingsSection from './SettingsSection.vue'
 import SharedLogsSettings from './SharedLogsSettings.vue'
@@ -384,7 +383,6 @@ watch(
             </SettingsRow>
         </SettingsSection>
 
-        <LogShareSettings />
         <SharedLogsSettings />
     </div>
 </template>

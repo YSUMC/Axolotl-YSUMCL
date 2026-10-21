@@ -1980,6 +1980,8 @@ pub enum InstallContentBatchItem {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct InstallPostInstallEdit {
+    #[serde(default)]
+    pub official: Option<crate::managed::ManagedInstanceSpec>,
     pub name: Option<String>,
     #[serde(
         default,
@@ -1991,6 +1993,21 @@ pub struct InstallPostInstallEdit {
 }
 
 impl InstallRequest {
+    pub(crate) fn official_spec(
+        &self,
+    ) -> Option<&crate::managed::ManagedInstanceSpec> {
+        match self {
+            Self::CreateModpackInstance {
+                post_install_edit, ..
+            }
+            | Self::InstallPackToExistingInstance {
+                post_install_edit, ..
+            } => post_install_edit
+                .as_ref()
+                .and_then(|edit| edit.official.as_ref()),
+            _ => None,
+        }
+    }
     pub(crate) fn completes_instance_install_stage(&self) -> bool {
         match self {
             Self::CreateInstance { .. }
@@ -2953,7 +2970,8 @@ impl InstallJobState {
                 CreatePackLocation::FromVersionId { .. } => {
                     InstallJobProvider::Modrinth
                 }
-                CreatePackLocation::FromFile { .. } => {
+                CreatePackLocation::FromFile { .. }
+                | CreatePackLocation::FromUrl { .. } => {
                     InstallJobProvider::Local
                 }
             },

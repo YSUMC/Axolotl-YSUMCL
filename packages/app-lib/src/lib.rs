@@ -23,6 +23,7 @@ pub mod resources;
 pub mod state;
 pub mod storage;
 pub mod telemetry;
+pub mod ysumc;
 
 pub use api::*;
 pub use error::*;

@@ -16,7 +16,11 @@ pub(super) async fn install_pack(
         )
         .await?;
 
+    let location = location.resolve_remote(reporter.clone()).await?;
     let create_pack = match location {
+        CreatePackLocation::FromUrl { .. } => {
+            unreachable!("remote pack has been resolved")
+        }
         CreatePackLocation::FromVersionId {
             project_id,
             version_id,

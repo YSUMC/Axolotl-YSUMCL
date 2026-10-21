@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { AxolotlBrandConfig } from '@/config'
 import {
     ClipboardCopyIcon,
     ExternalIcon,
@@ -832,6 +833,7 @@ function formatInsights(value: unknown): string {
 }
 
 async function loadLogShareSummary(instanceId: string): Promise<void> {
+    if (!AxolotlBrandConfig.capabilities.ai) return
     if (!isLogShareAutoAnalysis.value || logShareSummaryLoading.value) return
     if (logShareSettings.value.no_storage) {
         logShareSummaryState.value = 'unavailable'
@@ -1154,6 +1156,7 @@ watch(
 
 async function openAIAnalysis(): Promise<void> {
     if (aiLoading.value || !aiAvailable.value || !payload.value.instance_id) return
+    if (!AxolotlBrandConfig.capabilities.ai) return
     aiTabVisible.value = true
     activeTab.value = AI_TAB
     const version = analysisVersion
@@ -1171,6 +1174,7 @@ async function openAIAnalysis(): Promise<void> {
 }
 
 async function refreshAIAvailability(): Promise<void> {
+    if (!AxolotlBrandConfig.capabilities.ai) { localAvailable.value = false; return }
     try {
         const [settings, aiSettings] = await Promise.all([
             get_log_share_settings(),
@@ -1227,7 +1231,7 @@ async function handleProcessEvent(event: ProcessEvent): Promise<void> {
         if (!mounted || activeRuns.get(event.instance_id) !== event.uuid) return
 
         if (
-            shouldUseLogShareAutoAnalysis({
+            AxolotlBrandConfig.capabilities.ai && shouldUseLogShareAutoAnalysis({
                 ...logShareSettings.value,
                 ai_source: defaultSource.value,
             })
@@ -1385,6 +1389,7 @@ defineExpose({
 
                 <div
                     class="mt-auto flex flex-col gap-3 border-0 border-t border-solid border-surface-4 pt-4"
+                    v-if="AxolotlBrandConfig.capabilities.ai"
                     data-testid="crash-analysis-controls"
                 >
                     <div class="flex items-center justify-between gap-2">
@@ -1512,7 +1517,7 @@ defineExpose({
                         {{ crashLogLabel(file) }}
                     </button>
                     <button
-                        v-if="aiTabVisible"
+                        v-if="AxolotlBrandConfig.capabilities.ai && aiTabVisible"
                         class="crash-modal-tab"
                         :class="{ 'crash-modal-tab-active': activeTab === AI_TAB }"
                         @click="activeTab = AI_TAB"
@@ -1688,7 +1693,7 @@ defineExpose({
         "
         max-width="min(42rem, 90vw)"
     >
-        <LogShareSettings
+        <LogShareSettings v-if="AxolotlBrandConfig.capabilities.ai"
             local-setup
             @open-providers="openProviderSettings"
             @saving-change="localSetupSaving = $event"

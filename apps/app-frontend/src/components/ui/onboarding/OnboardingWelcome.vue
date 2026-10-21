@@ -138,12 +138,21 @@ async function toggleFollowSystem() {
                 <div class="onboarding-welcome-logo">
                     <AxolotlLogo icon-only />
                 </div>
-                <div class="onboarding-welcome-wordmark" aria-label="Axolotl Launcher">
-                    <span class="onboarding-welcome-wordmark-core" data-wordmark="Axolotl">
-                        Axolotl
+                <div
+                    class="onboarding-welcome-wordmark"
+                    aria-label="燕山大学Minecraft学生同好者协会"
+                >
+                    <span
+                        class="onboarding-welcome-wordmark-core"
+                        data-wordmark="燕山大学Minecraft学生同好者协会"
+                    >
+                        燕山大学Minecraft学生同好者协会
                     </span>
-                    <span class="onboarding-welcome-wordmark-suffix" data-wordmark="Launcher">
-                        Launcher
+                    <span
+                        class="onboarding-welcome-wordmark-suffix"
+                        data-wordmark="YanShan University Minecraft Club"
+                    >
+                        YanShan University Minecraft Club
                     </span>
                 </div>
             </div>
@@ -244,7 +253,8 @@ async function toggleFollowSystem() {
     left: 50%;
     display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
+    width: min(56rem, calc(100% - 3rem));
     gap: clamp(0.75rem, 2vw, 1.5rem);
     transform: translate(-50%, -50%);
     animation: onboarding-welcome-brand-lift 3200ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -254,21 +264,22 @@ async function toggleFollowSystem() {
     position: relative;
     z-index: 2;
     flex: none;
-    width: clamp(7rem, 15vw, 11rem);
-    height: clamp(7rem, 15vw, 11rem);
+    width: clamp(3rem, 8vw, 6rem);
+    height: clamp(3rem, 8vw, 6rem);
     animation: onboarding-welcome-logo-reveal 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .onboarding-welcome-wordmark {
     display: flex;
-    align-items: baseline;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 0.35em;
     max-width: 0;
     overflow: hidden;
     color: var(--color-text-primary);
-    font-size: 4.5rem;
+    font-size: clamp(0.85rem, 2.3vw, 1.9rem);
     font-weight: 800;
-    line-height: 1;
+    line-height: 1.3;
     letter-spacing: 0;
     white-space: nowrap;
     animation: onboarding-welcome-wordmark-reveal 1050ms 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -292,6 +303,7 @@ async function toggleFollowSystem() {
 .onboarding-welcome-wordmark-suffix {
     color: var(--color-text-tertiary);
     font-weight: 650;
+    font-size: 0.6em;
 }
 
 .onboarding-welcome-wordmark span::after {
@@ -588,15 +600,15 @@ async function toggleFollowSystem() {
     }
 
     .onboarding-welcome-logo {
-        width: 6.5rem;
-        height: 6.5rem;
+        width: 3rem;
+        height: 3rem;
     }
 
     .onboarding-welcome-wordmark {
         flex-direction: column;
         align-items: flex-start;
         gap: 0.1rem;
-        font-size: 2.5rem;
+        font-size: clamp(0.7rem, 2.5vw, 1.2rem);
     }
 
     .onboarding-welcome-panel-inner {
@@ -623,7 +635,7 @@ async function toggleFollowSystem() {
 
 @media (max-width: 480px) {
     .onboarding-welcome-wordmark {
-        font-size: 1.875rem;
+        font-size: clamp(0.6rem, 2.5vw, 0.9rem);
     }
 
     .onboarding-welcome-secondary-action > span {
@@ -633,7 +645,7 @@ async function toggleFollowSystem() {
 
 @media (min-width: 701px) and (max-width: 1000px) {
     .onboarding-welcome-wordmark {
-        font-size: 3.5rem;
+        font-size: 1.4rem;
     }
 }
 
@@ -643,12 +655,12 @@ async function toggleFollowSystem() {
     }
 
     .onboarding-welcome-logo {
-        width: 6.5rem;
-        height: 6.5rem;
+        width: 3rem;
+        height: 3rem;
     }
 
     .onboarding-welcome-wordmark {
-        font-size: 2.5rem;
+        font-size: clamp(0.8rem, 2.3vw, 1.9rem);
     }
 
     .onboarding-welcome-panel-inner {

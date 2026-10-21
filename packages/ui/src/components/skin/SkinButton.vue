@@ -14,6 +14,7 @@ const props = withDefaults(
         tooltip?: string
         disabled?: boolean
         isDragging?: boolean
+        loadingError?: string
     }>(),
     {
         forwardImageSrc: undefined,
@@ -21,6 +22,7 @@ const props = withDefaults(
         tooltip: undefined,
         disabled: false,
         isDragging: false,
+        loadingError: undefined,
     },
 )
 
@@ -75,7 +77,13 @@ watch(
             class="pointer-events-none absolute right-3 top-3 z-20 size-3 rounded-full border-2 border-solid border-surface-3 bg-green"
         ></span>
 
-        <div v-if="!imagesLoaded.forward" class="aspect-[31/40] h-full w-full">
+        <span
+            v-if="loadingError"
+            role="status"
+            class="pointer-events-none absolute inset-0 z-20 grid place-items-center p-4 text-center text-sm text-secondary"
+            >{{ loadingError }}</span
+        >
+        <div v-else-if="!imagesLoaded.forward" class="aspect-[31/40] h-full w-full">
             <div class="skeleton absolute inset-0 aspect-[5/7]"></div>
         </div>
 

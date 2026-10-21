@@ -14,7 +14,6 @@ import {
     injectNotificationManager,
     type MessageDescriptor,
     Slider,
-    ThemeSelector,
     Toggle,
     useVIntl,
 } from '@modrinth/ui'
@@ -45,20 +44,8 @@ import { createSettingsPatchSaver } from '@/helpers/settings-patch'
 import { getSystemFontFamilies } from '@/helpers/system-fonts.ts'
 import { getOS } from '@/helpers/utils'
 import { useTheming } from '@/store/state'
-import {
-    type AccentColor,
-    type CloseBehavior,
-    type ColorTheme,
-    DEFAULT_CUSTOM_ACCENT_COLOR,
-    deriveAccentVariants,
-    type FeatureFlag,
-    hexToHsl,
-    type HomeLayout,
-    hslToHex,
-    parseCustomAccentColor,
-} from '@/store/theme.ts'
+import type { CloseBehavior, FeatureFlag, HomeLayout } from '@/store/theme.ts'
 
-import AccentColorOption from './AccentColorOption.vue'
 import SettingsRow from './SettingsRow.vue'
 import SettingsSection from './SettingsSection.vue'
 
@@ -100,7 +87,15 @@ const messages = defineMessages({
     },
     colorThemeDescription: {
         id: 'app.appearance-settings.color-theme.description',
-        defaultMessage: 'Select your preferred color theme for Axolotl Launcher.',
+        defaultMessage: 'Choose the light or dark YSUMC theme.',
+    },
+    colorThemeLight: {
+        id: 'app.appearance-settings.color-theme.light',
+        defaultMessage: 'Light',
+    },
+    colorThemeDark: {
+        id: 'app.appearance-settings.color-theme.dark',
+        defaultMessage: 'Dark',
     },
     accentColorTitle: {
         id: 'app.appearance-settings.accent-color.title',
@@ -514,6 +509,12 @@ const os = ref(await getOS())
 const settings = ref(await get())
 const saveDraft = createSettingsPatchSaver(settings.value, update)
 
+function setColorTheme(value: string | number) {
+    if (value !== 'light' && value !== 'dark') return
+    themeStore.setThemeState(value)
+    settings.value.theme = value
+}
+
 /** Nav ids that must stay visible so the shell remains navigable. */
 const LOCKED_NAV_ITEM_IDS = new Set(['home', 'library'])
 
@@ -590,47 +591,6 @@ const customBackgroundPreview = computed(() =>
         ? convertFileSrc(settings.value.custom_background_path)
         : null,
 )
-
-const accentColorOptions: Array<{
-    value: AccentColor
-    color: string
-    label: MessageDescriptor
-}> = [
-    { value: 'pink', color: 'var(--color-pink)', label: messages.accentColorPink },
-    { value: 'orange', color: 'var(--color-orange)', label: messages.accentColorOrange },
-    { value: 'green', color: 'var(--color-green)', label: messages.accentColorGreen },
-    { value: 'blue', color: 'var(--color-blue)', label: messages.accentColorBlue },
-    { value: 'purple', color: 'var(--color-purple)', label: messages.accentColorPurple },
-]
-
-const isCustomAccent = computed(() => settings.value.accent_color.startsWith('custom:'))
-const isSystemAccent = computed(() => settings.value.accent_color === 'system')
-const customAccentHex = ref(
-    parseCustomAccentColor(settings.value.accent_color) ?? DEFAULT_CUSTOM_ACCENT_COLOR,
-)
-const customAccentHexInput = ref(customAccentHex.value)
-const customAccentHue = computed(() => Math.round(hexToHsl(customAccentHex.value).h))
-const customAccentPreview = computed(() => deriveAccentVariants(customAccentHex.value))
-
-function applyCustomAccent(hex: string) {
-    const normalized = hex.toLowerCase()
-    customAccentHex.value = normalized
-    customAccentHexInput.value = normalized
-    const value = `custom:${normalized}` as `custom:#${string}`
-    themeStore.setAccentColor(value)
-    settings.value.accent_color = value
-}
-
-function onCustomHueInput(value: string) {
-    const { s, l } = hexToHsl(customAccentHex.value)
-    applyCustomAccent(hslToHex(Number(value), Math.max(s, 40), l))
-}
-
-function onCustomHexInput(value: string) {
-    customAccentHexInput.value = value
-    const normalized = value.startsWith('#') ? value : `#${value}`
-    if (/^#[0-9a-fA-F]{6}$/.test(normalized)) applyCustomAccent(normalized)
-}
 
 function setHomeLayout(value: string | number) {
     if (value !== 'standard' && value !== 'minimal') return
@@ -911,160 +871,28 @@ watch(
 <template>
     <div class="flex flex-col gap-6">
         <SettingsSection v-if="props.scope === 'interface'">
-            <template #header>
-                <h2
-                    id="settings-target-appearance-color-theme"
-                    tabindex="-1"
-                    class="m-0 text-lg font-semibold text-[var(--color-text-primary)]"
-                >
-                    {{ formatMessage(messages.colorThemeTitle) }}
-                </h2>
-                <p class="m-0 mt-1 text-sm leading-relaxed text-[var(--color-text-tertiary)]">
-                    {{ formatMessage(messages.colorThemeDescription) }}
-                </p>
-            </template>
-            <div class="flex flex-col gap-4 p-4">
-                <ThemeSelector
-                    :update-color-theme="
-                        (theme: ColorTheme) => {
-                            themeStore.setThemeState(theme)
-                            settings.theme = theme
-                        }
-                    "
-                    :current-theme="settings.theme"
-                    :theme-options="themeStore.getThemeOptions()"
-                    system-theme-color="system"
-                />
-            </div>
-        </SettingsSection>
-
-        <SettingsSection v-if="props.scope === 'interface'">
-            <template #header>
-                <h2
-                    id="settings-target-appearance-accent-color"
-                    tabindex="-1"
-                    class="m-0 text-lg font-semibold text-[var(--color-text-primary)]"
-                >
-                    {{ formatMessage(messages.accentColorTitle) }}
-                </h2>
-                <p class="m-0 mt-1 text-sm leading-relaxed text-[var(--color-text-tertiary)]">
-                    {{ formatMessage(messages.accentColorDescription) }}
-                </p>
-            </template>
-            <div class="flex flex-col gap-4 p-4 @container">
-                <div
-                    class="flex flex-wrap gap-2"
-                    role="radiogroup"
-                    :aria-label="formatMessage(messages.accentColorTitle)"
-                >
-                    <AccentColorOption
-                        v-for="accentColor in accentColorOptions"
-                        :key="accentColor.value"
-                        :label="formatMessage(accentColor.label)"
-                        :selected="settings.accent_color === accentColor.value"
-                        :background="accentColor.color"
-                        class="basis-[5.75rem]"
-                        @click="
-                            () => {
-                                themeStore.setAccentColor(accentColor.value)
-                                settings.accent_color = accentColor.value
-                            }
-                        "
+            <SettingsRow>
+                <template #label>
+                    <span id="settings-target-appearance-color-theme" tabindex="-1">
+                        {{ formatMessage(messages.colorThemeTitle) }}
+                    </span>
+                </template>
+                <template #description>{{
+                    formatMessage(messages.colorThemeDescription)
+                }}</template>
+                <template #control>
+                    <HeadlessSelect
+                        id="color-theme"
+                        :model-value="themeStore.selectedTheme"
+                        :name="formatMessage(messages.colorThemeTitle)"
+                        :options="[
+                            { value: 'light', label: formatMessage(messages.colorThemeLight) },
+                            { value: 'dark', label: formatMessage(messages.colorThemeDark) },
+                        ]"
+                        @update:model-value="setColorTheme"
                     />
-                    <AccentColorOption
-                        :label="formatMessage(messages.accentColorSystem)"
-                        :accessible-label="
-                            formatMessage(
-                                themeStore.systemAccentSupported === false
-                                    ? messages.accentColorSystemUnsupportedLabel
-                                    : messages.accentColorSystem,
-                            )
-                        "
-                        :description="
-                            themeStore.systemAccentSupported === false
-                                ? formatMessage(messages.accentColorSystemUnsupported)
-                                : undefined
-                        "
-                        :disabled="themeStore.systemAccentSupported !== true"
-                        :selected="isSystemAccent"
-                        :background="themeStore.systemAccentColor ?? 'var(--color-pink)'"
-                        class="basis-[8.25rem]"
-                        @click="
-                            () => {
-                                themeStore.setAccentColor('system')
-                                settings.accent_color = 'system'
-                            }
-                        "
-                    />
-                    <AccentColorOption
-                        :label="formatMessage(messages.accentColorCustom)"
-                        :selected="isCustomAccent"
-                        :background="
-                            isCustomAccent
-                                ? customAccentHex
-                                : 'conic-gradient(#ef4444, #f59e0b, #22c55e, #06b6d4, #6366f1, #ec4899, #ef4444)'
-                        "
-                        class="basis-[6.75rem]"
-                        @click="applyCustomAccent(customAccentHex)"
-                    />
-                </div>
-
-                <div
-                    v-if="isCustomAccent"
-                    class="rounded-lg border border-solid border-surface-4 bg-surface-3 p-4"
-                >
-                    <label class="block">
-                        <span class="text-sm font-semibold text-[var(--color-text-primary)]">
-                            {{ formatMessage(messages.accentColorCustomHue) }}
-                        </span>
-                        <input
-                            type="range"
-                            min="0"
-                            max="360"
-                            step="1"
-                            :value="customAccentHue"
-                            class="hue-slider mt-2"
-                            :aria-label="formatMessage(messages.accentColorCustomHue)"
-                            @input="onCustomHueInput(($event.target as HTMLInputElement).value)"
-                        />
-                    </label>
-
-                    <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
-                        <label class="flex items-center gap-2">
-                            <span class="text-sm font-semibold text-[var(--color-text-primary)]">
-                                {{ formatMessage(messages.accentColorCustomHex) }}
-                            </span>
-                            <input
-                                type="text"
-                                maxlength="7"
-                                spellcheck="false"
-                                :value="customAccentHexInput"
-                                class="w-28"
-                                @input="onCustomHexInput(($event.target as HTMLInputElement).value)"
-                                @blur="customAccentHexInput = customAccentHex"
-                            />
-                        </label>
-                        <div class="flex items-center gap-2">
-                            <span
-                                class="size-6 shrink-0 rounded-full ring-2 ring-white/20"
-                                :style="{ backgroundColor: customAccentPreview.light }"
-                            />
-                            <span class="text-sm text-[var(--color-text-tertiary)]">
-                                {{ formatMessage(messages.accentColorCustomPreviewLight) }}
-                            </span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span
-                                class="size-6 shrink-0 rounded-full ring-2 ring-white/20"
-                                :style="{ backgroundColor: customAccentPreview.dark }"
-                            />
-                            <span class="text-sm text-[var(--color-text-tertiary)]">
-                                {{ formatMessage(messages.accentColorCustomPreviewDark) }}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+                </template>
+            </SettingsRow>
         </SettingsSection>
 
         <SettingsSection v-if="props.scope === 'interface'">

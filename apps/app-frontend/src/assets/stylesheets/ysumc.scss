@@ -1,0 +1,181 @@
+@font-face {
+    font-family: YSUMC;
+    src: url('/ysumc/ysumc.woff2') format('woff2');
+    font-display: swap;
+}
+
+// App-local VI layer; shared components continue to use their semantic tokens.
+html:root[class],
+html body {
+    --color-brand: #66cccc;
+    --color-brand-highlight: #66cccc;
+    --color-brand-highlight-opaque: #66cccc;
+    --color-brand-shadow: transparent;
+    --color-button-bg-selected: #66cccc;
+    --color-button-text-selected: #203c3d;
+    --color-focus-ring: #1f296a;
+    --radius-sm: 2px;
+    --radius-md: 2px;
+    --radius-lg: 3px;
+    --radius-xl: 3px;
+    --shadow-raised: none;
+    --brand-gradient-bg: #3b3b3b;
+    --brand-gradient-strong-bg: #1f296a;
+    --loading-bar-gradient: linear-gradient(to right, #66cccc, #1f296a);
+}
+
+html.light,
+html.light-mode,
+.light-mode body,
+.light body {
+    color-scheme: light;
+    --surface-1: #f1f1f1;
+    --surface-1-5: #f1f1f1;
+    --surface-2: #ffffff;
+    --surface-2-5: #e1eeee;
+    --surface-3: #f1f1f1;
+    --surface-4: #e5e5e5;
+    --surface-5: #d3d3d3;
+    --color-bg: #f1f1f1;
+    --color-text-primary: #3b3b3b;
+    --color-text-default: #3b3b3b;
+    --color-text-tertiary: #626262;
+    --color-base: #3b3b3b;
+    --color-secondary: #626262;
+    --color-contrast: #3b3b3b;
+    --color-button-text: #3b3b3b;
+    --color-accent-contrast: #203c3d;
+    --color-red: #9c292d;
+    --color-orange: #d36839;
+    --color-blue: #1f296a;
+}
+
+.ysumc-heading {
+    font-family: YSUMC, var(--font-standard, sans-serif);
+    font-weight: 400;
+    line-height: 1.4;
+}
+
+html [data-button] {
+    border-radius: 2px;
+    box-shadow: none;
+}
+
+html [data-button]::before {
+    display: none;
+}
+
+.ysumc-portal {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(16rem, 1fr);
+    gap: 1rem;
+}
+
+.ysumc-portal > section {
+    background: var(--surface-2);
+    padding: clamp(1.5rem, 3vw, 3rem);
+}
+
+.ysumc-portal > .ysumc-brand-panel {
+    background: #3b3b3b;
+    color: #f1f1f1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    border-top: 4px solid #66cccc;
+}
+
+.app-sidebar,
+.ysumc-brand-panel {
+    color-scheme: dark;
+    color: #f1f1f1;
+    --surface-1: #3b3b3b;
+    --surface-2: #454545;
+    --surface-3: #4d4d4d;
+    --surface-4: #555555;
+    --surface-5: #737373;
+    --surface-1-opaque: #3b3b3b;
+    --surface-2-opaque: #454545;
+    --surface-3-opaque: #4d4d4d;
+    --surface-4-opaque: #555555;
+    --surface-5-opaque: #737373;
+    --color-text-primary: #ffffff;
+    --color-text-default: #f1f1f1;
+    --color-text-secondary: #e0e0e0;
+    --color-text-tertiary: #d4d4d4;
+    --color-base: var(--color-text-default);
+    --color-secondary: var(--color-text-tertiary);
+    --color-contrast: var(--color-text-primary);
+    --color-button-text: var(--color-text-default);
+    --color-button-text-active: var(--color-text-primary);
+    --color-accent-contrast: #203c3d;
+    --color-link: #8fe1e1;
+    --color-link-hover: #b3eeee;
+    --color-link-active: #b3eeee;
+    --brand-gradient-button: #555555;
+    --brand-gradient-border: #737373;
+    --hover-brightness: 1.15;
+}
+
+.ysumc-brand-panel .ysumc-heading {
+    color: inherit;
+}
+
+.ysumc-instance-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: 1rem;
+}
+
+.ysumc-instance-grid article {
+    background: var(--surface-2);
+    padding: 1.5rem;
+    border-top: 3px solid #66cccc;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.ysumc-instance-grid article p {
+    flex: 1;
+    margin: 0;
+}
+.nav-rail .nav-rail-slider {
+    border-radius: 2px;
+}
+
+@media (max-width: 850px) {
+    .ysumc-portal {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+// YSUMC dark palette. Surface steps stay distinct on ordinary cards.
+html.dark-mode,
+html.dark-mode body {
+    color-scheme: dark;
+    --surface-1: #151923;
+    --surface-1-5: #191e2a;
+    --surface-2: #202735;
+    --surface-2-5: #262e3e;
+    --surface-3: #2a3445;
+    --surface-4: #3c485d;
+    --surface-5: #56647b;
+    --color-bg: #151923;
+    --color-text-primary: #f4f6fa;
+    --color-text-default: #e0e6f0;
+    --color-text-tertiary: #b9c4d6;
+    --color-base: #e0e6f0;
+    --color-secondary: #b9c4d6;
+    --color-contrast: #f4f6fa;
+    --color-divider: #3c485d;
+    --color-button-text: #f4f6fa;
+    --color-accent-contrast: #143737;
+    --color-link: #8fe1e1;
+}
+.ysumc-portal > .ysumc-brand-panel.is-signed-in {
+    background: #1f296a;
+    --surface-2: #293878;
+    --surface-3: #35458b;
+    --surface-4: #5365a7;
+}

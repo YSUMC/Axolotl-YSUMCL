@@ -1,10 +1,10 @@
 [package]
 name = "theseus_gui"
 # The actual version is set by the theseus-build workflow on tagging
-version = "1.10.0-beta.3"
+version = "1.0.0"
 edition.workspace = true
-description = "Axolotl Launcher is a cross-platform Minecraft launcher"
-homepage = "https://www.ghs.red"
+description = "YSUMC Launcher is the Minecraft launcher for the Yanshan University Minecraft Club"
+homepage = "https://ysumc.net"
 license = "GPL-3.0-only"
 
 [dependencies]

@@ -260,6 +260,7 @@ pub async fn apply_content_update_plan(
                 "The content update plan has expired".to_string(),
             )
         })?;
+    crate::managed::ensure_content_editable(&plan.instance_id).await?;
     let state = State::get().await?;
     let current_revision = crate::state::instances::adapters::sqlite::content_rows::get_applied_content_set(
 		&plan.instance_id,

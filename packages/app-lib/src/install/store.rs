@@ -511,6 +511,20 @@ pub async fn complete_running_job(
         transaction.rollback().await?;
         return Ok(None);
     }
+    if let (Some(instance_id), Some(spec)) =
+        (instance_id.as_deref(), state.request.official_spec())
+    {
+        sqlx::query("INSERT INTO managed_installations(instance_id, spec_json) VALUES (?, ?) ON CONFLICT(instance_id) DO UPDATE SET spec_json = excluded.spec_json")
+            .bind(instance_id).bind(serde_json::to_string(spec)?).execute(&mut *transaction).await?;
+        let updated = sqlx::query("UPDATE managed_instances SET instance_id = ?, revision = ?, updated = ? WHERE server_instance_id = ?")
+            .bind(instance_id).bind(spec.revision).bind(modified).bind(&spec.id).execute(&mut *transaction).await?;
+        if updated.rows_affected() != 1 {
+            return Err(crate::ErrorKind::InputError(
+                "官方整合包绑定已失效，请刷新清单后重试".into(),
+            )
+            .into());
+        }
+    }
     if let super::model::InstallRequest::UpgradeUnmanagedInstance {
         execution,
         ..
@@ -960,6 +974,96 @@ mod tests {
             instance_install_stage(&instance_id, &state).await,
             InstanceInstallStage::PackInstalling
         );
+    }
+
+    #[cfg(not(feature = "tauri"))]
+    #[tokio::test]
+    async fn official_completion_binds_spec_and_revision_atomically() {
+        use super::super::model::{InstallPostInstallEdit, InstallRequest};
+        use crate::api::pack::install_from::{
+            CreatePackLocation, RemotePackDisplay,
+        };
+        let (state, instance_id) =
+            create_completion_test_instance("official binding").await;
+        let server_id = format!("official-{}", Uuid::new_v4());
+        let spec: crate::managed::ManagedInstanceSpec = serde_json::from_value(serde_json::json!({
+            "id": server_id, "name": "Official", "revision": 2,
+            "minecraft": {"game_version": "1.20.1"},
+            "pack": {"kind": "mrpack", "url": "https://skin.ysumc.net/test.mrpack", "sha1": "a".repeat(40), "size": 12}
+        })).unwrap();
+        let job_state = InstallJobState::new(
+            InstallRequest::InstallPackToExistingInstance {
+                instance_id: instance_id.clone(),
+                location: CreatePackLocation::FromUrl {
+                    url: spec.pack.url.clone(),
+                    sha1: spec.pack.sha1.clone().unwrap(),
+                    size: 12,
+                    display: RemotePackDisplay {
+                        name: "Official".into(),
+                        game_version: "1.20.1".into(),
+                        loader: None,
+                        loader_version: None,
+                        icon_url: None,
+                    },
+                },
+                post_install_edit: Some(InstallPostInstallEdit {
+                    official: Some(spec.clone()),
+                    ..Default::default()
+                }),
+            },
+        );
+        let job = insert_running_job(&job_state, &state).await;
+        assert!(
+            complete_running_job(job.id, &job_state, &state)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            instance_install_stage(&instance_id, &state).await,
+            InstanceInstallStage::PackInstalling
+        );
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM managed_installations WHERE instance_id = ?",
+        )
+        .bind(&instance_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(count.0, 0);
+        sqlx::query("INSERT INTO managed_instances(server_instance_id, instance_id, revision, target_revision, name, updated) VALUES (?, '', 0, 2, 'Official', 1)")
+            .bind(&server_id).execute(&state.pool).await.unwrap();
+        complete_running_job(job.id, &job_state, &state)
+            .await
+            .unwrap()
+            .unwrap();
+        let bound: (String, i64) = sqlx::query_as("SELECT instance_id, revision FROM managed_instances WHERE server_instance_id = ?")
+            .bind(&server_id).fetch_one(&state.pool).await.unwrap();
+        assert_eq!(bound, (instance_id.clone(), 2));
+        let saved: (String,) = sqlx::query_as(
+            "SELECT spec_json FROM managed_installations WHERE instance_id = ?",
+        )
+        .bind(&instance_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            serde_json::from_str::<crate::managed::ManagedInstanceSpec>(
+                &saved.0
+            )
+            .unwrap()
+            .pack
+            .sha1,
+            spec.pack.sha1
+        );
+        assert_eq!(
+            instance_install_stage(&instance_id, &state).await,
+            InstanceInstallStage::Installed
+        );
+        let violations = sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap();
+        assert!(violations.is_empty());
     }
 
     #[cfg(not(feature = "tauri"))]

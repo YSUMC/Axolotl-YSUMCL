@@ -1,6 +1,7 @@
 use super::{
-    Credentials, MinecraftAccountType, MinecraftCharacterExpressionState,
-    MinecraftProfile, MinecraftSkin, MinecraftSkinVariant,
+    Credentials, MinecraftAccountType, MinecraftCape,
+    MinecraftCharacterExpressionState, MinecraftProfile, MinecraftSkin,
+    MinecraftSkinVariant,
 };
 use crate::ErrorKind;
 use crate::util::fetch::INSECURE_REQWEST_CLIENT;
@@ -90,12 +91,12 @@ struct Metadata {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AuthenticateResponse {
-    access_token: String,
-    client_token: String,
+pub(super) struct AuthenticateResponse {
+    pub(super) access_token: String,
+    pub(super) client_token: String,
     #[serde(default)]
-    available_profiles: Vec<YggdrasilProfile>,
-    selected_profile: Option<YggdrasilProfile>,
+    pub(super) available_profiles: Vec<YggdrasilProfile>,
+    pub(super) selected_profile: Option<YggdrasilProfile>,
 }
 
 #[derive(Deserialize)]
@@ -139,6 +140,8 @@ struct TexturePayload {
 struct SessionTextures {
     #[serde(rename = "SKIN")]
     skin: Option<SessionTexture>,
+    #[serde(rename = "CAPE")]
+    cape: Option<SessionTexture>,
 }
 
 #[derive(Deserialize)]
@@ -336,6 +339,17 @@ pub async fn refresh_yggdrasil_credentials(
         return Ok(());
     }
 
+    // A session opened through the account site belongs to its OpenID provider:
+    // the classic auth server does not know those tokens, so renew it there.
+    if !credentials.refresh_token.is_empty()
+        && credentials.yggdrasil.as_ref().is_some_and(|account| {
+            crate::ysumc::is_yggdrasil_api_root(&account.api_root)
+        })
+    {
+        return super::oidc::refresh_credentials_with_oidc(credentials, exec)
+            .await;
+    }
+
     let account = credentials.yggdrasil.clone().ok_or_else(|| {
         ErrorKind::OtherError(
             "Yggdrasil credentials are missing provider information"
@@ -381,6 +395,7 @@ pub async fn refresh_yggdrasil_credentials(
         },
     )
     .await?;
+
     let profile = refreshed.selected_profile.ok_or_else(|| {
         ErrorKind::OtherError(
             "The Yggdrasil service rejected the selected profile".to_string(),
@@ -425,34 +440,43 @@ pub async fn fetch_yggdrasil_profile(
             ))
             .as_error()
         })?;
-    let skin = profile
+    let textures = profile
         .properties
         .iter()
         .find(|property| property.name == "textures")
-        .and_then(|property| match decode_session_skin(profile.id, &property.value) {
-            Ok(skin) => skin,
+        .and_then(|property| match decode_session_textures(&property.value) {
+            Ok(textures) => Some(textures),
             Err(error) => {
                 tracing::warn!(
-                    "Unable to decode the Yggdrasil skin for profile {}: {error}",
+                    "Unable to decode the Yggdrasil textures for profile {}: {error}",
                     profile.id
                 );
                 None
             }
-        });
+        })
+        .unwrap_or_default();
+    let skin = textures
+        .skin
+        .and_then(|skin| decode_session_skin(profile.id, skin).ok());
+    // The society's skin site publishes capes through the same textures
+    // property as skins, so a player's cape is available without a second
+    // request.
+    let cape = textures
+        .cape
+        .and_then(|cape| decode_session_cape(cape).ok().flatten());
 
     Ok(Some(MinecraftProfile {
         id: profile.id,
         name: profile.name,
         skins: skin.into_iter().collect(),
-        capes: Vec::new(),
+        capes: cape.into_iter().collect(),
         fetch_time: Some(Instant::now()),
     }))
 }
 
-fn decode_session_skin(
-    profile_id: Uuid,
+fn decode_session_textures(
     encoded_textures: &str,
-) -> Result<Option<MinecraftSkin>, String> {
+) -> Result<SessionTextures, String> {
     let decoded = BASE64_STANDARD
         .decode(encoded_textures)
         .or_else(|_| BASE64_STANDARD_NO_PAD.decode(encoded_textures))
@@ -461,9 +485,31 @@ fn decode_session_skin(
         })?;
     let payload: TexturePayload = serde_json::from_slice(&decoded)
         .map_err(|error| format!("invalid textures JSON: {error}"))?;
-    let Some(skin) = payload.textures.skin else {
-        return Ok(None);
-    };
+
+    Ok(payload.textures)
+}
+
+fn decode_session_cape(
+    cape: SessionTexture,
+) -> Result<Option<MinecraftCape>, String> {
+    let url = Url::parse(&cape.url)
+        .map_err(|error| format!("invalid cape texture URL: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("cape texture URL must use HTTP or HTTPS".to_string());
+    }
+
+    Ok(Some(MinecraftCape {
+        id: uuid::Uuid::new_v4(),
+        state: MinecraftCharacterExpressionState::Active,
+        url: Arc::new(url),
+        name: Arc::from("Cape"),
+    }))
+}
+
+fn decode_session_skin(
+    profile_id: Uuid,
+    skin: SessionTexture,
+) -> Result<MinecraftSkin, String> {
     let url = Url::parse(&skin.url)
         .map_err(|error| format!("invalid skin texture URL: {error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
@@ -475,14 +521,14 @@ fn decode_session_skin(
         MinecraftSkinVariant::Classic
     };
 
-    Ok(Some(MinecraftSkin {
+    Ok(MinecraftSkin {
         id: profile_id,
         state: MinecraftCharacterExpressionState::Active,
         url: Arc::new(url),
         texture_key: None,
         variant,
         name: None,
-    }))
+    })
 }
 
 pub async fn fetch_yggdrasil_metadata(
@@ -516,6 +562,32 @@ pub async fn fetch_yggdrasil_metadata(
         server_name,
         raw,
     })
+}
+
+/// The OpenID provider the account site announces, if it supports Yggdrasil
+/// Connect.
+///
+/// The specification puts the discovery URL in the Yggdrasil API metadata under
+/// `meta.feature.openid_configuration_url`; a site without it does not implement
+/// Yggdrasil Connect, which is what the launcher prefers for signing in.
+pub(super) fn openid_configuration_url(metadata: &str) -> Option<String> {
+    #[derive(Deserialize, Default)]
+    struct OpenIdFeature {
+        #[serde(default, rename = "feature.openid_configuration_url")]
+        configuration_url: Option<String>,
+    }
+
+    #[derive(Deserialize, Default)]
+    struct Metadata {
+        #[serde(default)]
+        meta: OpenIdFeature,
+    }
+
+    serde_json::from_str::<Metadata>(metadata)
+        .ok()
+        .and_then(|document| document.meta.configuration_url)
+        .map(|url| url.trim().to_string())
+        .filter(|url| !url.is_empty())
 }
 
 pub fn normalize_api_root(api_root: &str) -> crate::Result<String> {
@@ -607,7 +679,7 @@ async fn response_error(response: reqwest::Response) -> crate::Error {
     ErrorKind::OtherError(message).as_error()
 }
 
-fn create_credentials(
+pub(super) fn create_credentials(
     profile: YggdrasilProfile,
     access_token: String,
     client_token: String,
@@ -684,13 +756,37 @@ mod tests {
             br#"{"textures":{"SKIN":{"url":"https://textures.example/slim.png","metadata":{"model":"slim"}}}}"#,
         );
 
-        let classic =
-            decode_session_skin(profile_id, &classic).unwrap().unwrap();
-        let slim = decode_session_skin(profile_id, &slim).unwrap().unwrap();
+        let classic_textures = decode_session_textures(&classic).unwrap();
+        let classic = decode_session_skin(
+            profile_id,
+            classic_textures.skin.expect("classic skin"),
+        )
+        .unwrap();
+        let slim_textures = decode_session_textures(&slim).unwrap();
+        let slim = decode_session_skin(
+            profile_id,
+            slim_textures.skin.expect("slim skin"),
+        )
+        .unwrap();
         assert_eq!(classic.variant, MinecraftSkinVariant::Classic);
         assert_eq!(slim.variant, MinecraftSkinVariant::Slim);
         assert_eq!(classic.id, profile_id);
         assert_eq!(classic.url.as_str(), "https://textures.example/skin.png");
+    }
+
+    #[test]
+    fn decodes_a_session_cape_when_the_textures_property_carries_one() {
+        let with_cape = BASE64_STANDARD.encode(
+            br#"{"textures":{"SKIN":{"url":"https://textures.example/skin.png"},"CAPE":{"url":"https://textures.example/cape.png"}}}"#,
+        );
+
+        let textures = decode_session_textures(&with_cape).unwrap();
+        assert!(textures.skin.is_some());
+        let cape = decode_session_cape(textures.cape.expect("cape"))
+            .unwrap()
+            .expect("cape texture");
+
+        assert_eq!(cape.url.as_str(), "https://textures.example/cape.png");
     }
 
     #[test]
@@ -700,9 +796,16 @@ mod tests {
         let invalid_url = BASE64_STANDARD
             .encode(br#"{"textures":{"SKIN":{"url":"file:///tmp/skin.png"}}}"#);
 
-        assert!(decode_session_skin(profile_id, &missing).unwrap().is_none());
-        assert!(decode_session_skin(profile_id, "not-base64").is_err());
-        assert!(decode_session_skin(profile_id, &invalid_url).is_err());
+        assert!(decode_session_textures(&missing).unwrap().skin.is_none());
+        assert!(decode_session_textures("not-base64").is_err());
+        let invalid_textures = decode_session_textures(&invalid_url).unwrap();
+        assert!(
+            decode_session_skin(
+                profile_id,
+                invalid_textures.skin.expect("invalid skin")
+            )
+            .is_err()
+        );
     }
 
     #[tokio::test]

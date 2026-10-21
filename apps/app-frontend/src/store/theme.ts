@@ -18,8 +18,6 @@ export interface ShortcutBinding {
     alt: boolean
 }
 
-let systemThemeMq: MediaQueryList | null = null
-
 export const DEFAULT_FEATURE_FLAGS = {
     project_background: false,
     page_path: false,
@@ -38,13 +36,14 @@ export const DEFAULT_FEATURE_FLAGS = {
     auto_install_dependencies: true,
 }
 
-export const THEME_OPTIONS = ['dark', 'light', 'oled', 'system'] as const
+export const THEME_OPTIONS = ['light', 'dark'] as const
 export const ACCENT_COLOR_OPTIONS = ['pink', 'orange', 'green', 'blue', 'purple'] as const
 export const DEFAULT_CUSTOM_ACCENT_COLOR = '#db2777'
 
 export type FeatureFlag = keyof typeof DEFAULT_FEATURE_FLAGS
 export type FeatureFlags = Record<FeatureFlag, boolean>
-export type ColorTheme = (typeof THEME_OPTIONS)[number]
+// Keep legacy settings readable; only light and dark can be selected now.
+export type ColorTheme = (typeof THEME_OPTIONS)[number] | 'oled' | 'system'
 export type AccentColor = (typeof ACCENT_COLOR_OPTIONS)[number]
 export type CustomAccentColor = `custom:#${string}`
 export type AccentColorSetting = AccentColor | 'system' | CustomAccentColor
@@ -228,48 +227,16 @@ export const useTheming = defineStore('themeStore', {
     state: () => DEFAULT_THEME_STORE,
     actions: {
         setThemeState(newTheme: ColorTheme) {
-            if (THEME_OPTIONS.includes(newTheme)) {
-                this.selectedTheme = newTheme
-            } else {
-                console.warn('Selected theme is not present. Check themeOptions.')
-            }
-
+            this.selectedTheme = newTheme === 'light' ? 'light' : 'dark'
             this.setThemeClass()
         },
-        setAccentColor(newAccentColor: AccentColorSetting) {
-            if (
-                newAccentColor === 'system' ||
-                parseCustomAccentColor(newAccentColor) !== null ||
-                ACCENT_COLOR_OPTIONS.includes(newAccentColor as AccentColor)
-            ) {
-                this.selectedAccentColor = newAccentColor
-            } else {
-                console.warn('Selected accent color is not available.')
-            }
-
+        setAccentColor(_newAccentColor: AccentColorSetting) {
+            this.selectedAccentColor = 'custom:#66cccc'
             const html = document.documentElement
-            for (const accentColor of ACCENT_COLOR_OPTIONS) {
-                html.classList.remove(`accent-${accentColor}`)
-            }
-            html.classList.remove('accent-custom')
-
-            const customHex =
-                parseCustomAccentColor(this.selectedAccentColor) ??
-                (this.selectedAccentColor === 'system' ? this.systemAccentColor : null)
-            if (customHex) {
-                const variants = deriveAccentVariants(customHex)
-                html.style.setProperty('--custom-accent-light', variants.light)
-                html.style.setProperty('--custom-accent-dark', variants.dark)
-                html.classList.add('accent-custom')
-            } else if (this.selectedAccentColor === 'system') {
-                html.style.removeProperty('--custom-accent-light')
-                html.style.removeProperty('--custom-accent-dark')
-                html.classList.add('accent-pink')
-            } else {
-                html.style.removeProperty('--custom-accent-light')
-                html.style.removeProperty('--custom-accent-dark')
-                html.classList.add(`accent-${this.selectedAccentColor}`)
-            }
+            for (const accent of ACCENT_COLOR_OPTIONS) html.classList.remove(`accent-${accent}`)
+            html.style.setProperty('--custom-accent-light', '#66cccc')
+            html.style.setProperty('--custom-accent-dark', '#66cccc')
+            html.classList.add('accent-custom')
         },
         setSystemAccentColor(systemHex: string) {
             if (!/^#[0-9a-fA-F]{6}$/.test(systemHex)) {
@@ -288,21 +255,10 @@ export const useTheming = defineStore('themeStore', {
         },
         setThemeClass() {
             const html = document.getElementsByTagName('html')[0]
-            for (const theme of THEME_OPTIONS) {
+            for (const theme of [...THEME_OPTIONS, 'oled', 'system']) {
                 html.classList.remove(`${theme}-mode`)
             }
-
-            systemThemeMq?.removeEventListener('change', this.setThemeClass)
-            systemThemeMq = null
-
-            let theme = this.selectedTheme
-            if (this.selectedTheme === 'system') {
-                systemThemeMq = window.matchMedia('(prefers-color-scheme: dark)')
-                systemThemeMq.addEventListener('change', this.setThemeClass)
-                theme = systemThemeMq.matches ? 'dark' : 'light'
-            }
-
-            html.classList.add(`${theme}-mode`)
+            html.classList.add(`${this.selectedTheme}-mode`)
         },
         /**
          * Applies the transparent window mode to the root element. The palette

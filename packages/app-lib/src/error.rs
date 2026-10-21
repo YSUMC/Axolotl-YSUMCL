@@ -24,6 +24,8 @@ pub struct LabrinthError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum ErrorKind {
+    #[error("Account session expired: {detail}. Sign in to YSUMC again.")]
+    CredentialsExpired { detail: String },
     #[error("{0:?}")]
     Any(eyre::Report),
 

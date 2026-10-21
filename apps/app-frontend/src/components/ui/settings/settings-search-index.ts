@@ -18,6 +18,16 @@ const message = (id: string, defaultMessage: string): MessageDescriptor => ({ id
 
 export const settingsSearchEntries: SettingsSearchEntry[] = [
     {
+        id: 'appearance-color-theme',
+        categoryId: 'interface',
+        targetId: 'settings-target-appearance-color-theme',
+        label: message('app.appearance-settings.color-theme.title', 'Color theme'),
+        description: message(
+            'app.appearance-settings.color-theme.description',
+            'Choose the light or dark YSUMC theme.',
+        ),
+    },
+    {
         id: 'network-tests',
         categoryId: 'network-connection',
         targetId: 'settings-target-network-tests',
@@ -28,26 +38,6 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
                 'DNS IP latency speed connectivity diagnostics CurseForge CF Modrinth MR CDN Mojang API proxy',
             ),
         ],
-    },
-    {
-        id: 'appearance-color-theme',
-        categoryId: 'interface',
-        targetId: 'settings-target-appearance-color-theme',
-        label: message('app.appearance-settings.color-theme.title', 'Color theme'),
-        description: message(
-            'app.appearance-settings.color-theme.description',
-            'Select your preferred color theme for Axolotl Launcher.',
-        ),
-    },
-    {
-        id: 'appearance-accent-color',
-        categoryId: 'interface',
-        targetId: 'settings-target-appearance-accent-color',
-        label: message('app.appearance-settings.accent-color.title', 'Accent color'),
-        description: message(
-            'app.appearance-settings.accent-color.description',
-            'Choose the color used for buttons, selections, and highlights.',
-        ),
     },
     {
         id: 'appearance-launcher-background',

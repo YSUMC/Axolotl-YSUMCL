@@ -286,7 +286,7 @@ async function loadLatestChannelVersions() {
         (['release', 'beta'] as const).map(async (channel) => {
             try {
                 const response = await tauriFetch(
-                    `https://update.axlmc.org/latest?channel=${channel}`,
+                    `https://skin.ysumc.net/api/launcher/update/latest?channel=${channel}`,
                 )
                 if (!response.ok) return [channel, undefined] as const
                 const payload = (await response.json()) as { version?: string }

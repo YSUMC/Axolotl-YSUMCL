@@ -15,9 +15,10 @@ use theseus::{
 use tokio::time::Instant;
 use url::Url;
 
-const UPDATE_SERVER_LATEST_URL: &str = "https://update.axlmc.org/latest";
-const UPDATE_SERVER_API: &str = "https://update.axlmc.org/api/versions";
-const UPDATE_SERVER_BASE: &str = "https://update.axlmc.org/";
+const UPDATE_SERVER_LATEST_URL: &str = "https://skin.ysumc.net/api/launcher/update/{{target}}/{{arch}}/{{current_version}}";
+const UPDATE_SERVER_API: &str =
+    "https://skin.ysumc.net/api/launcher/update/versions";
+const UPDATE_SERVER_BASE: &str = "https://skin.ysumc.net/";
 
 // The updater plugin builds `Update` with no request timeout, so a stalled
 // connection would hang the download forever. Bound the whole download.
@@ -194,15 +195,19 @@ async fn check_with_endpoints<R: Runtime>(
     webview: &Webview<R>,
     channel: &str,
 ) -> Result<Option<Update>> {
+    let public_key = option_env!("YSUMC_UPDATER_PUBLIC_KEY")
+        .filter(|key| !key.trim().is_empty())
+        .unwrap_or(include_str!("../ysumc-updater.pub").trim());
     let channel = update_channel(channel)?;
     let platform = update_platform()?;
     let current_version =
         webview.app_handle().package_info().version.to_string();
     let mut updater = webview
         .updater_builder()
+        .pubkey(public_key)
         .endpoints(vec![update_endpoint()?])?
         .header("Accept", "application/json")?
-        .header("X-Axolotl-Channel", channel)?
+        .header("X-YSUMC-Channel", channel)?
         .header("X-Axolotl-Platform", platform)?
         .header("X-Axolotl-Version", current_version)?;
 

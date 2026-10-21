@@ -157,6 +157,7 @@ fn display_from_request(state: &InstallJobState) -> Option<InstallJobDisplay> {
                 title: title.clone(),
                 icon: icon_url.clone(),
             }),
+            crate::api::pack::install_from::CreatePackLocation::FromUrl { display, .. } => Some(InstallJobDisplay { title: display.name.clone(), icon: display.icon_url.clone() }),
             crate::api::pack::install_from::CreatePackLocation::FromFile {
                 ..
             } => None,

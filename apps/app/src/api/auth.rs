@@ -13,6 +13,9 @@ use tokio::sync::{mpsc, oneshot};
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     tauri::plugin::Builder::<R>::new("auth")
         .invoke_handler(tauri::generate_handler![
+            begin_ysumc_device_login,
+            poll_ysumc_device_login,
+            validate_ysumc_session,
             check_reachable,
             check_mojang_services,
             set_mojang_auth_use_mirror,
@@ -43,6 +46,11 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
 pub async fn check_reachable() -> Result<()> {
     minecraft_auth::check_reachable().await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn validate_ysumc_session() -> Result<Option<String>> {
+    Ok(minecraft_auth::validate_ysumc_session().await?)
 }
 
 /// Checks all Mojang services that the Fallen proxy mirrors.
@@ -668,4 +676,17 @@ mod tests {
             .is_err()
         );
     }
+}
+
+#[tauri::command]
+pub async fn begin_ysumc_device_login()
+-> Result<minecraft_auth::YsumcDeviceLoginFlow> {
+    Ok(minecraft_auth::begin_ysumc_device_login().await?)
+}
+
+#[tauri::command]
+pub async fn poll_ysumc_device_login(
+    flow_id: uuid::Uuid,
+) -> Result<minecraft_auth::YsumcDeviceLoginPoll> {
+    Ok(minecraft_auth::poll_ysumc_device_login(flow_id).await?)
 }

@@ -39,7 +39,7 @@ if (values['installer-only']) {
     const targetDirectory = path.join(root, 'target', ...(target ? [target] : []), profile)
     const binary = path.join(
         targetDirectory,
-        `Axolotl Launcher${process.platform === 'win32' ? '.exe' : ''}`,
+        `YSUMC Launcher${process.platform === 'win32' ? '.exe' : ''}`,
     )
     const args = ['tauri', 'build', '--ci', '--no-bundle', '--config', 'tauri-release.conf.json']
     if (target) args.push('--target', target)

@@ -952,6 +952,7 @@ pub async fn resolve_export_resource(
 }
 
 async fn start(request: InstallRequest) -> crate::Result<InstallJobSnapshot> {
+    validate_official_content_write(&request).await?;
     let state = State::get().await?;
     let id = Uuid::new_v4();
     let mut job_state = InstallJobState::new(request);
@@ -973,6 +974,23 @@ async fn start(request: InstallRequest) -> crate::Result<InstallJobSnapshot> {
     emit_install_job(&record.snapshot()).await?;
     lifecycle::spawn_job(id);
     Ok(record.snapshot())
+}
+
+async fn validate_official_content_write(
+    request: &InstallRequest,
+) -> crate::Result<()> {
+    if request.official_spec().is_none()
+        && !matches!(
+            request,
+            InstallRequest::ExportResource { .. }
+                | InstallRequest::InstallCurseForgeWorld { .. }
+        )
+        && let InstallTarget::ExistingInstance { instance_id } =
+            request.target()
+    {
+        crate::managed::ensure_content_editable(&instance_id).await?;
+    }
+    Ok(())
 }
 
 async fn cleanup_failed_initial_install(
@@ -1376,7 +1394,8 @@ fn modpack_details(location: &CreatePackLocation) -> InstallPhaseDetails {
             version_id: Some(version_id.clone()),
             title: Some(title.clone()),
         },
-        CreatePackLocation::FromFile { .. } => InstallPhaseDetails::Modpack {
+        CreatePackLocation::FromFile { .. }
+        | CreatePackLocation::FromUrl { .. } => InstallPhaseDetails::Modpack {
             project_id: None,
             version_id: None,
             title: None,
