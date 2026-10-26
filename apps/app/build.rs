@@ -325,6 +325,7 @@ fn main() {
                         "begin_ysumc_device_login",
                         "poll_ysumc_device_login",
                         "validate_ysumc_session",
+                        "launcher_site_document",
                         "begin_yggdrasil_login",
                         "finish_yggdrasil_login",
                         "list_yggdrasil_saved_logins",
@@ -596,6 +597,9 @@ fn main() {
                 InlinedPlugin::new()
                     .commands(&[
                         "get_available_capes",
+                        "upload_cape",
+                        "equip_cape",
+                        "remove_cape",
                         "get_available_skins",
                         "add_and_equip_custom_skin",
                         "equip_skin",
@@ -1074,49 +1078,6 @@ fn main() {
                     ),
             )
             .plugin(
-                "terracotta",
-                InlinedPlugin::new()
-                    .commands(&[
-                        "terracotta_get_state",
-                        "terracotta_get_meta",
-                        "terracotta_start",
-                        "terracotta_stop",
-                        "terracotta_host",
-                        "terracotta_join",
-                        "terracotta_reset",
-                        "terracotta_get_platform_key",
-                        "terracotta_check_for_update",
-                        "terracotta_download",
-                        "terracotta_update",
-                        "terracotta_get_player_name",
-                        "terracotta_get_diagnostic_report",
-                    ])
-                    .default_permission(
-                        DefaultPermissionRule::AllowAllCommands,
-                    ),
-            )
-            .plugin(
-                "multiplayer",
-                InlinedPlugin::new()
-                    .commands(&[
-                        "multiplayer_get_state",
-                        "multiplayer_get_nodes",
-                        "multiplayer_get_detected_ports",
-                        "multiplayer_download_hongshi",
-                        "multiplayer_switch_provider",
-                        "multiplayer_prepare_terracotta",
-                        "multiplayer_host",
-                        "multiplayer_join",
-                        "multiplayer_stop",
-                        "multiplayer_reset",
-                        "multiplayer_get_player_name",
-                        "multiplayer_open_hongshi_logs",
-                    ])
-                    .default_permission(
-                        DefaultPermissionRule::AllowAllCommands,
-                    ),
-            )
-            .plugin(
                 "servers",
                 InlinedPlugin::new()
                     .commands(&[
@@ -1145,19 +1106,6 @@ fn main() {
                         "servers_get_log_buffer",
                         "servers_get_log_delta",
                         "servers_clear_log",
-                    ])
-                    .default_permission(
-                        DefaultPermissionRule::AllowAllCommands,
-                    ),
-            )
-            .plugin(
-                "friends",
-                InlinedPlugin::new()
-                    .commands(&[
-                        "friends",
-                        "friend_statuses",
-                        "add_friend",
-                        "remove_friend",
                     ])
                     .default_permission(
                         DefaultPermissionRule::AllowAllCommands,

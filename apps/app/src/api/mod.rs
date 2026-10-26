@@ -14,7 +14,6 @@ pub mod metadata;
 pub mod minecraft_skins;
 pub mod mod_translation;
 pub mod mr_auth;
-pub mod multiplayer;
 pub mod planet_minecraft;
 pub mod process;
 pub mod schematic_preview;
@@ -26,7 +25,6 @@ pub mod storage;
 pub mod system_accent;
 pub mod tags;
 pub mod telemetry;
-pub mod terracotta;
 pub mod translation;
 pub mod utils;
 
@@ -38,7 +36,6 @@ pub mod datapacks;
 pub mod drop;
 pub mod files;
 pub mod fonts;
-pub mod friends;
 pub mod resources;
 pub mod worlds;
 

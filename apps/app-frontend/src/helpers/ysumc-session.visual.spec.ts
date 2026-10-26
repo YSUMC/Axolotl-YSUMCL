@@ -5,8 +5,10 @@ import type { MinecraftAccount } from '@/helpers/minecraft-account'
 
 import {
     acceptYsumcSession,
+    refreshYsumcIdentity,
     refreshYsumcSession,
     ysumcAccount,
+    ysumcIdentity,
     ysumcSignedIn,
 } from './ysumc-session'
 
@@ -17,6 +19,7 @@ vi.mock('./auth', () => ({ users: calls.users, set_default_user: calls.select })
 const account = {
     account_type: 'yggdrasil',
     account_id: 'test-ysumc',
+    profile: { id: 'test', name: 'TestPlayer', skins: [], capes: [] },
     yggdrasil: { api_root: YsumcConfig.yggdrasilApiRoot },
 } as MinecraftAccount
 
@@ -49,10 +52,12 @@ it('only admits the validated YSUMC account', async () => {
 
 it('a completed login supersedes an older in-flight session check', async () => {
     let finish!: (value: null) => void
-    calls.invoke.mockReturnValue(
-        new Promise((resolve) => {
-            finish = resolve
-        }),
+    calls.invoke.mockImplementation((command) =>
+        command === 'plugin:auth|validate_ysumc_session'
+            ? new Promise((resolve) => {
+                  finish = resolve
+              })
+            : Promise.resolve(null),
     )
     const pending = refreshYsumcSession()
     await acceptYsumcSession(account)
@@ -60,4 +65,32 @@ it('a completed login supersedes an older in-flight session check', async () => 
     await pending
     expect(ysumcAccount.value?.account_id).toBe(account.account_id)
     expect(calls.select).toHaveBeenCalledWith(account.account_id)
+})
+
+it('shows only verified group and single department tags, clearing them on sign out', async () => {
+    ysumcAccount.value = account
+    calls.invoke.mockResolvedValue({
+        player: 'TestPlayer',
+        role: 'member',
+        department: 'technology',
+        tags: ['社员', '技术部'],
+    })
+    await refreshYsumcIdentity()
+    expect(ysumcIdentity.value?.tags).toEqual(['社员', '技术部'])
+    ysumcAccount.value = null
+    expect(ysumcIdentity.value).toBeNull()
+})
+it('discards a late identity response for the previous account', async () => {
+    ysumcAccount.value = account
+    let finish!: (value: unknown) => void
+    calls.invoke.mockReturnValueOnce(
+        new Promise((resolve) => {
+            finish = resolve
+        }),
+    )
+    const pending = refreshYsumcIdentity()
+    ysumcAccount.value = null
+    finish({ player: 'TestPlayer', tags: ['超级管理员'] })
+    await pending
+    expect(ysumcIdentity.value).toBeNull()
 })

@@ -89,13 +89,6 @@ export function resolveOpenRoute(path: string, query?: string | null) {
         return null
     }
     if (path.startsWith('/multiplayer')) {
-        if (
-            path === '/multiplayer/servers' ||
-            path === '/multiplayer/rooms' ||
-            path.startsWith('/multiplayer/servers/')
-        ) {
-            return route(path, query)
-        }
         return null
     }
     if (path.startsWith('/lab')) {

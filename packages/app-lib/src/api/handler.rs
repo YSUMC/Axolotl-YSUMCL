@@ -597,7 +597,11 @@ pub async fn parse_command(
     command_string: &str,
 ) -> crate::Result<CommandPayload> {
     tracing::debug!("Parsing command: {}", &command_string);
-    if let Some(sublink) = command_string.strip_prefix("axolotl://") {
+    let brand_prefix = format!("{}://", crate::branding::active().scheme);
+    if let Some(sublink) = command_string
+        .strip_prefix(&brand_prefix)
+        .or_else(|| command_string.strip_prefix("axolotl://"))
+    {
         if !external_scheme_allowed().await {
             emit_warning("External links are disabled in settings").await?;
             return Err(crate::ErrorKind::InputError(

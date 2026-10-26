@@ -117,6 +117,7 @@ const breadcrumbData = useBreadcrumbs()
 const { formatMessage } = useVIntl()
 
 const messages = defineMessages({
+    partners: { id: 'app.navigation.partners', defaultMessage: 'Partner clubs' },
     home: { id: 'app.navigation.home', defaultMessage: 'Home' },
     worlds: { id: 'app.navigation.worlds', defaultMessage: 'Worlds' },
     discoverContent: {
@@ -153,6 +154,7 @@ const messages = defineMessages({
 
 const staticLabels = {
     Home: messages.home,
+    Partners: messages.partners,
     Worlds: messages.worlds,
     'Discover content': messages.discoverContent,
     'Skin selector': messages.skinSelector,
@@ -177,6 +179,7 @@ const staticLabels = {
 
 const staticIcons: Record<string, Component> = {
     Home: HomeIcon,
+    Partners: GlobeIcon,
     Worlds: GlobeIcon,
     'Discover content': CompassIcon,
     'Skin selector': ChangeSkinIcon,

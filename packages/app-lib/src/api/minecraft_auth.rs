@@ -344,10 +344,13 @@ pub async fn validate_ysumc_session() -> crate::Result<Option<String>> {
     let credential = Credentials::get_default_credential(&state.pool).await?;
     Ok(credential
         .filter(|account| {
-            account.yggdrasil.as_ref().is_some_and(|server| {
-                server.api_root.trim_end_matches('/')
-                    == crate::ysumc::YGGDRASIL_API_ROOT
-            })
+            crate::branding::accepts_account(
+                account.is_offline(),
+                account
+                    .yggdrasil
+                    .as_ref()
+                    .map(|server| server.api_root.as_str()),
+            )
         })
         .map(|account| account.account_id()))
 }

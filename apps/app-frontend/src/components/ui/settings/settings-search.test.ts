@@ -31,7 +31,7 @@ const settingsComponentFiles = {
         './SharedLogsSettings.vue',
     ],
     'content-downloads': ['./AppearanceSettings.vue', './ResourceManagementSettings.vue'],
-    'network-multiplayer': ['./ResourceManagementSettings.vue', './MultiplayerSettings.vue'],
+    'network-multiplayer': ['./ResourceManagementSettings.vue'],
     'network-connection': ['./NetworkConnectionSettings.vue'],
     'storage-backups': [
         './ResourceManagementSettings.vue',

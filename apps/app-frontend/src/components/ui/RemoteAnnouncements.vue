@@ -9,9 +9,12 @@ import {
 } from '@modrinth/ui'
 import { renderString } from '@modrinth/utils'
 import { getVersion } from '@tauri-apps/api/app'
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 
+import { isMutmc, launcherBrand, launcherServices } from '@/branding'
+import { launcherSiteDocument } from '@/helpers/launcher-site'
 import {
     announcementKey,
     isAnnouncementActive,
@@ -22,6 +25,7 @@ import {
     safeAnnouncementUrl,
 } from '@/helpers/remote-announcements'
 import { getUpdateChannel } from '@/helpers/settings'
+import { ysumcAccount } from '@/helpers/ysumc-session'
 
 const props = defineProps<{ ready: boolean; previewOnly?: boolean }>()
 const { formatMessage } = useVIntl()
@@ -35,6 +39,12 @@ const messages = defineMessages({
     },
     centerTitle: { id: 'app.remote-announcements.center-title', defaultMessage: 'Announcements' },
     empty: { id: 'app.remote-announcements.empty', defaultMessage: 'No announcements' },
+    loading: { id: 'app.remote-announcements.loading', defaultMessage: 'Loading announcements…' },
+    failed: {
+        id: 'app.remote-announcements.failed',
+        defaultMessage: 'Could not refresh announcements. Please try again.',
+    },
+    refresh: { id: 'app.remote-announcements.refresh', defaultMessage: 'Refresh announcements' },
     previewTitle: {
         id: 'app.remote-announcements.preview-title',
         defaultMessage: 'Announcement style preview',
@@ -60,11 +70,15 @@ const active = ref(false)
 const centerOpen = ref(false)
 const startupNotice = ref<RemoteAnnouncement | null>(null)
 const html = computed(() => renderString(selected.value?.content ?? ''))
-const stateKey = 'axolotl-remote-announcements-v2'
+const baseStateKey = `${launcherBrand.id}-remote-announcements-v2`
+let stateKey = `${baseStateKey}:${ysumcAccount.value?.account_id ?? 'guest'}`
+let audienceGeneration = 0
 const read = reactive(new Set<string>())
 const queuedThisSession = new Set<string>()
 const startupNotified = new Set<string>()
-let items: RemoteAnnouncement[] = []
+const items = ref<RemoteAnnouncement[]>([])
+const loading = ref(false)
+const failed = ref(false)
 let pending: RemoteAnnouncement[] = []
 let cacheKey = ''
 let endpoint: URL | undefined
@@ -73,6 +87,8 @@ let inFlight = false
 let disposed = false
 let controller: AbortController | undefined
 let interval: ReturnType<typeof setInterval> | undefined
+let refreshInterval: ReturnType<typeof setInterval> | undefined
+let lastRequestAt = 0
 let advanceTimer: ReturnType<typeof setTimeout> | undefined
 
 function persist() {
@@ -92,8 +108,8 @@ function emitState() {
     window.dispatchEvent(
         new CustomEvent(REMOTE_ANNOUNCEMENTS_UPDATED_EVENT, {
             detail: {
-                items,
-                unreadKeys: items
+                items: items.value,
+                unreadKeys: items.value
                     .filter((item) => !read.has(announcementKey(item)))
                     .map(announcementKey),
             },
@@ -106,14 +122,15 @@ function openCenter(item?: RemoteAnnouncement) {
     if (item) {
         startupNotice.value = null
         selectAnnouncement(item)
-    } else if (!selected.value && items.length) {
-        selectAnnouncement(items[0])
+    } else if (!selected.value && items.value.length) {
+        selectAnnouncement(items.value[0])
     }
     void nextTick(() => modal.value?.show())
 }
 function handleOpenCenter() {
     if (props.previewOnly) return
     openCenter()
+    void refresh()
 }
 async function show(item: RemoteAnnouncement) {
     if (
@@ -138,7 +155,7 @@ function selectAnnouncement(item: RemoteAnnouncement) {
     emitState()
 }
 function markAllRead() {
-    for (const item of items) {
+    for (const item of items.value) {
         read.add(announcementKey(item))
     }
     pending = []
@@ -152,7 +169,7 @@ function advance() {
         void show(next)
         return
     }
-    for (const item of items) {
+    for (const item of items.value) {
         const key = announcementKey(item)
         if (
             item.type === 'notification' &&
@@ -179,13 +196,20 @@ function closed() {
     advanceTimer = setTimeout(advance, 350)
 }
 function sync(next: RemoteAnnouncement[], fresh: boolean) {
-    items = next.filter((item) => isAnnouncementActive(item))
-    const keys = new Set(items.map(announcementKey))
+    items.value = next.filter((item) => isAnnouncementActive(item))
+    const keys = new Set(items.value.map(announcementKey))
     pending = pending.filter((item) => keys.has(announcementKey(item)))
-    if (selected.value && !keys.has(announcementKey(selected.value))) selected.value = null
+    if (selected.value) {
+        const selectedKey = announcementKey(selected.value)
+        selected.value = items.value.find((item) => announcementKey(item) === selectedKey) ?? null
+    }
+    if (startupNotice.value && !keys.has(announcementKey(startupNotice.value)))
+        startupNotice.value = null
+    if (centerOpen.value && !selected.value && items.value.length)
+        selectAnnouncement(items.value[0])
     emitState()
     if (fresh) {
-        for (const item of items) {
+        for (const item of items.value) {
             const key = announcementKey(item)
             if (
                 item.type === 'modal' &&
@@ -200,7 +224,7 @@ function sync(next: RemoteAnnouncement[], fresh: boolean) {
     }
 }
 function loadCache() {
-    if (cacheLoaded || !cacheKey) return
+    if (!isMutmc || cacheLoaded || !cacheKey) return
     cacheLoaded = true
     try {
         const cached = JSON.parse(localStorage.getItem(cacheKey) ?? 'null')
@@ -217,8 +241,12 @@ function loadCache() {
     }
 }
 async function refresh() {
-    if (inFlight || disposed) return
+    if (inFlight || disposed || props.previewOnly) return
+    const generation = audienceGeneration
     inFlight = true
+    loading.value = true
+    failed.value = false
+    lastRequestAt = Date.now()
     const abort = new AbortController()
     controller = abort
     const timeout = setTimeout(() => abort.abort(), 10000)
@@ -226,8 +254,7 @@ async function refresh() {
         if (!endpoint) {
             const [version, channel] = await Promise.all([getVersion(), getUpdateChannel()])
             endpoint = new URL(
-                import.meta.env.VITE_AXO_ANNOUNCEMENTS_URL ||
-                    'https://skin.ysumc.net/api/launcher/announcements',
+                import.meta.env.VITE_AXO_ANNOUNCEMENTS_URL || launcherServices.announcementsUrl,
             )
             endpoint.searchParams.set('version', version)
             endpoint.searchParams.set('channel', channel === 'release' ? 'stable' : 'beta')
@@ -235,26 +262,59 @@ async function refresh() {
         }
         if (disposed || abort.signal.aborted) return
         loadCache()
-        const response = await fetch(endpoint, { signal: abort.signal, credentials: 'omit' })
-        if (!response.ok) return
-        const text = await response.text()
-        if (text.length > 4500000) return
-        const result = JSON.parse(text)
-        const parsed = parseAnnouncements(Array.isArray(result) ? result : result.announcements)
-        if (!parsed || disposed) return
+        let result: unknown
+        if (isMutmc) {
+            const response = await tauriFetch(endpoint.href, { signal: abort.signal })
+            if (!response.ok) throw new Error(`Announcements request failed: ${response.status}`)
+            const text = await response.text()
+            if (text.length > 4500000) throw new Error('Announcements response is too large')
+            result = JSON.parse(text)
+        } else {
+            result = await launcherSiteDocument(
+                'announcements',
+                endpoint.searchParams.get('version') ?? undefined,
+                endpoint.searchParams.get('channel') ?? undefined,
+            )
+        }
+        if (generation !== audienceGeneration) return
+        const entries = Array.isArray(result)
+            ? result
+            : result && typeof result === 'object' && 'announcements' in result
+              ? result.announcements
+              : null
+        const parsed = parseAnnouncements(entries)
+        if (!parsed) throw new Error('Invalid announcements response')
+        if (disposed) return
         sync(parsed, true)
         try {
-            localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), items: parsed }))
+            if (isMutmc)
+                localStorage.setItem(
+                    cacheKey,
+                    JSON.stringify({ savedAt: Date.now(), items: parsed }),
+                )
         } catch {
             // Ignore cache write failures
         }
-    } catch {
-        // Network/parse failures are non-fatal; next reconnect retries
+    } catch (error) {
+        if (!disposed && generation === audienceGeneration) {
+            if (!isMutmc) sync([], false)
+            failed.value = true
+            console.warn('Failed to refresh launcher announcements', error)
+        }
     } finally {
         clearTimeout(timeout)
-        inFlight = false
-        controller = undefined
+        if (generation === audienceGeneration) {
+            inFlight = false
+            loading.value = false
+            controller = undefined
+        }
     }
+}
+function handleFocus() {
+    if (Date.now() - lastRequestAt >= 30000) void refresh()
+}
+function handleOnline() {
+    void refresh()
 }
 async function openLink(value: unknown) {
     const url = safeAnnouncementUrl(value)
@@ -303,13 +363,16 @@ onMounted(() => {
         // Ignore malformed local read-state
     }
     window.addEventListener(OPEN_REMOTE_ANNOUNCEMENT_CENTER_EVENT, handleOpenCenter)
+    window.addEventListener('focus', handleFocus)
+    window.addEventListener('online', handleOnline)
     const start = () => {
         if (disposed) return
         void refresh()
         interval = setInterval(() => {
-            sync(items, false)
+            sync(items.value, false)
             advance()
         }, 15000)
+        refreshInterval = setInterval(() => void refresh(), 60000)
     }
     // Defer the startup request until after first paint.
     if (typeof requestIdleCallback === 'function') {
@@ -322,12 +385,32 @@ watch([() => props.ready, hasModal], () => {
     if (advanceTimer) clearTimeout(advanceTimer)
     advanceTimer = setTimeout(advance, 350)
 })
+watch(
+    () => ysumcAccount.value?.account_id,
+    () => {
+        if (isMutmc || props.previewOnly) return
+        audienceGeneration++
+        controller?.abort()
+        inFlight = false
+        stateKey = `${baseStateKey}:${ysumcAccount.value?.account_id ?? 'guest'}`
+        read.clear()
+        queuedThisSession.clear()
+        startupNotified.clear()
+        pending = []
+        sync([], false)
+        void refresh()
+    },
+    { flush: 'sync' },
+)
 onUnmounted(() => {
     disposed = true
     controller?.abort()
     if (interval) clearInterval(interval)
+    if (refreshInterval) clearInterval(refreshInterval)
     if (advanceTimer) clearTimeout(advanceTimer)
     window.removeEventListener(OPEN_REMOTE_ANNOUNCEMENT_CENTER_EVENT, handleOpenCenter)
+    window.removeEventListener('focus', handleFocus)
+    window.removeEventListener('online', handleOnline)
 })
 </script>
 
@@ -378,7 +461,11 @@ onUnmounted(() => {
                     v-if="!items.length"
                     class="py-8 text-center text-sm text-[var(--color-text-tertiary)]"
                 >
-                    {{ formatMessage(messages.empty) }}
+                    {{
+                        formatMessage(
+                            loading ? messages.loading : failed ? messages.failed : messages.empty,
+                        )
+                    }}
                 </div>
                 <div v-else class="flex min-h-0 flex-col gap-1 overflow-auto">
                     <button
@@ -432,11 +519,24 @@ onUnmounted(() => {
                 v-else
                 class="flex flex-1 items-center justify-center text-sm text-[var(--color-text-tertiary)]"
             >
-                {{ formatMessage(messages.empty) }}
+                {{
+                    formatMessage(
+                        loading ? messages.loading : failed ? messages.failed : messages.empty,
+                    )
+                }}
             </div>
         </div>
         <template #actions>
             <div class="flex flex-wrap justify-end gap-2">
+                <span
+                    v-if="failed && items.length"
+                    role="status"
+                    class="mr-auto self-center text-sm text-[var(--color-text-tertiary)]"
+                    >{{ formatMessage(messages.failed) }}</span
+                >
+                <Button v-if="!previewOnly" :disabled="loading" @click="refresh">{{
+                    formatMessage(messages.refresh)
+                }}</Button>
                 <Button @click="modal?.hide()"
                     >{{ formatMessage(commonMessages.closeButton) }}
                 </Button>

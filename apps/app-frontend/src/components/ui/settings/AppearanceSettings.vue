@@ -538,7 +538,6 @@ const NAV_TREE_ITEMS: NavTreeItem[] = [
     { id: 'screenshots', label: messages.navScreenshots, group: 'browse' },
     { id: 'library', label: messages.navLibrary, group: 'play' },
     { id: 'worlds', label: messages.navWorlds, group: 'play' },
-    { id: 'multiplayer', label: messages.navMultiplayer, group: 'play' },
     { id: 'skins', label: messages.navSkins, group: 'play' },
     { id: 'lab', label: messages.navLab, group: 'tools' },
 ]

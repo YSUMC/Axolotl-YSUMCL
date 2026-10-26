@@ -124,6 +124,8 @@ pub enum CreatePackLocation {
     FromUrl {
         url: String,
         sha1: String,
+        #[serde(default)]
+        sha512: Option<String>,
         size: u64,
         display: RemotePackDisplay,
     },
@@ -206,10 +208,11 @@ pub async fn get_instance_from_pack(
         CreatePackLocation::FromUrl {
             url,
             sha1,
+            sha512,
             size,
             display,
         } => {
-            validate_remote_pack(&url, &sha1, size)?;
+            validate_remote_pack(&url, &sha1, sha512.as_deref(), size)?;
             Ok(CreatePackInstance {
                 name: display.name,
                 game_version: display.game_version,
@@ -888,19 +891,29 @@ pub struct RemotePackDisplay {
 
 const DOWNLOADED_PACK_CACHE_FOLDER: &str = "ysumc-packs";
 
-fn validate_remote_pack(url: &str, sha1: &str, size: u64) -> crate::Result<()> {
+fn validate_remote_pack(
+    url: &str,
+    sha1: &str,
+    sha512: Option<&str>,
+    size: u64,
+) -> crate::Result<()> {
     let parsed = url::Url::parse(url).map_err(|_| {
         crate::ErrorKind::InputError("Invalid official pack URL".into())
     })?;
     if parsed.scheme() != "https"
         || !parsed.username().is_empty()
         || parsed.password().is_some()
-        || sha1.len() != 40
-        || !sha1.bytes().all(|c| c.is_ascii_hexdigit())
+        || (sha1.is_empty() && sha512.is_none())
+        || (!sha1.is_empty()
+            && (sha1.len() != 40
+                || !sha1.bytes().all(|c| c.is_ascii_hexdigit())))
+        || sha512.is_some_and(|hash| {
+            hash.len() != 128 || !hash.bytes().all(|c| c.is_ascii_hexdigit())
+        })
         || size == 0
     {
         return Err(crate::ErrorKind::InputError(
-            "Official packs require HTTPS, a SHA-1 hash and a positive size"
+            "Official packs require HTTPS, a valid hash and a positive size"
                 .into(),
         )
         .as_error());
@@ -915,19 +928,27 @@ impl CreatePackLocation {
     ) -> crate::Result<Self> {
         match self {
             Self::FromUrl {
-                url, sha1, size, ..
+                url,
+                sha1,
+                sha512,
+                size,
+                ..
             } => {
-                validate_remote_pack(&url, &sha1, size)?;
-                let path = downloaded_pack_path(Some(&sha1)).await?;
+                validate_remote_pack(&url, &sha1, sha512.as_deref(), size)?;
+                let sha1 = (!sha1.is_empty()).then_some(sha1.as_str());
+                let path =
+                    downloaded_pack_path(sha512.as_deref().or(sha1)).await?;
                 download_pack_with_progress(
                     &url,
-                    Some(&sha1),
+                    sha1,
+                    sha512.as_deref(),
                     Some(size),
                     &path,
                     reporter,
                 )
                 .await?;
-                verify_pack_file(&path, Some(&sha1), Some(size)).await?;
+                verify_pack_file(&path, sha1, sha512.as_deref(), Some(size))
+                    .await?;
                 Ok(Self::FromFile { path })
             }
             location => Ok(location),
@@ -935,9 +956,10 @@ impl CreatePackLocation {
     }
 }
 /// Enforces the declared SHA-1 and size of a pack that is already on disk.
-async fn verify_pack_file(
+pub(crate) async fn verify_pack_file(
     path: &Path,
     sha1: Option<&str>,
+    sha512: Option<&str>,
     size: Option<u64>,
 ) -> crate::Result<()> {
     let metadata = tokio::fs::metadata(path).await.map_err(|error| {
@@ -956,7 +978,29 @@ async fn verify_pack_file(
         ))
         .as_error());
     }
-    if let Some(expected) = sha1.map(str::trim).filter(|sha1| !sha1.is_empty())
+    if let Some(expected) = sha512 {
+        use sha2::{Digest, Sha512};
+        use tokio::io::AsyncReadExt;
+        let mut file = tokio::fs::File::open(path).await?;
+        let mut digest = Sha512::new();
+        let mut buffer = vec![0u8; 64 * 1024];
+        loop {
+            let length = file.read(&mut buffer).await?;
+            if length == 0 {
+                break;
+            }
+            digest.update(&buffer[..length]);
+        }
+        let actual = format!("{:x}", digest.finalize());
+        if !actual.eq_ignore_ascii_case(expected) {
+            return Err(crate::ErrorKind::HashError(
+                expected.to_lowercase(),
+                actual,
+            )
+            .as_error());
+        }
+    } else if let Some(expected) =
+        sha1.map(str::trim).filter(|sha1| !sha1.is_empty())
     {
         let (_, actual) = sha1_file_async(path).await?;
         if !actual.eq_ignore_ascii_case(expected) {
@@ -979,7 +1023,8 @@ async fn downloaded_pack_path(sha1: Option<&str>) -> crate::Result<PathBuf> {
     let key = sha1
         .map(|sha1| sha1.trim().to_ascii_lowercase())
         .filter(|sha1| {
-            sha1.len() == 40 && sha1.bytes().all(|c| c.is_ascii_hexdigit())
+            matches!(sha1.len(), 40 | 128)
+                && sha1.bytes().all(|c| c.is_ascii_hexdigit())
         })
         .unwrap_or_else(|| "unverified".to_string());
     let state = State::get().await?;
@@ -996,6 +1041,7 @@ async fn downloaded_pack_path(sha1: Option<&str>) -> crate::Result<PathBuf> {
 pub(crate) async fn download_pack_with_progress(
     url: &str,
     sha1: Option<&str>,
+    sha512: Option<&str>,
     size: Option<u64>,
     destination: &Path,
     reporter: InstallProgressReporter,
@@ -1007,7 +1053,8 @@ pub(crate) async fn download_pack_with_progress(
 
     let integrity = Integrity {
         size,
-        sha1: sha1.map(str::to_string),
+        sha1: sha1.filter(|_| sha512.is_none()).map(str::to_string),
+        sha512: sha512.map(str::to_string),
         content: ContentValidation::Jar,
         ..Integrity::default()
     };
@@ -1053,8 +1100,13 @@ pub(crate) async fn download_pack_with_progress(
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| "pack.mrpack".to_string());
+    let (download_url, authorization) =
+        crate::api::launcher_site::pack_download(url).await?;
+    let mut request =
+        DownloadRequest::new(download_url, ResourceClass::Modpack);
+    request.header = authorization;
     let result = download_to_path(
-        DownloadRequest::new(url, ResourceClass::Modpack)
+        request
             .with_integrity(integrity)
             .with_h2_range_concurrency(16)
             .with_install_tracking(

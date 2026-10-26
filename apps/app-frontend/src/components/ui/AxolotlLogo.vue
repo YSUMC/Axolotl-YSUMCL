@@ -1,15 +1,18 @@
 <template>
     <div
-        aria-label="YSUMC"
+        :aria-label="launcherBrand.shortName"
         class="flex h-full items-center gap-2 font-extrabold text-[var(--color-text-primary)]"
     >
         <img aria-hidden="true" class="aspect-square h-full object-contain" :src="axolotlVisual" />
-        <span v-if="!iconOnly" class="hidden text-sm tracking-wide xl:inline">YSUMC</span>
+        <span v-if="!iconOnly" class="hidden text-sm tracking-wide xl:inline">{{
+            launcherBrand.shortName
+        }}</span>
     </div>
 </template>
 
 <script setup lang="ts">
-const axolotlVisual = '/ysumc/logo.svg'
+import { isMutmc, launcherBrand } from '@/branding'
+const axolotlVisual = isMutmc ? '/brands/mutmc/icon.webp' : '/ysumc/logo.svg'
 
 defineProps<{
     iconOnly?: boolean

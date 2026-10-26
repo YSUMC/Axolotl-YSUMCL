@@ -21,6 +21,13 @@ const DIRTY_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(60);
 
 static DIRTY_INSTANCES: LazyLock<DashSet<String>> = LazyLock::new(DashSet::new);
+static CONFIG_FILE_LOCK: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
+
+pub(crate) async fn lock_config_files() -> tokio::sync::MutexGuard<'static, ()>
+{
+    CONFIG_FILE_LOCK.lock().await
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct InstanceConfigFile {
@@ -103,6 +110,9 @@ async fn sync_instance_with_dirs(
     pool: &SqlitePool,
     instance_id: &str,
 ) -> crate::Result<()> {
+    // Serialize with deletion before reading metadata, otherwise a background
+    // sync can recreate a profile after its files and database row were removed.
+    let _config_guard = lock_config_files().await;
     let Some(metadata) = get_instance(instance_id, pool).await? else {
         return Ok(());
     };
@@ -762,6 +772,32 @@ mod tests {
         read_config(&dirs, "Corrupt Instance");
 
         drop(temp);
+    }
+
+    #[tokio::test]
+    async fn uninstall_blocks_pending_sync_from_recreating_deleted_profile() {
+        let (_temp, dirs) = test_dirs();
+        let pool = test_pool().await;
+        insert_instance(&dirs, &pool, "local:race", "Deleted", "Deleted").await;
+        let guard = lock_config_files().await;
+        let sync = sync_instance_with_dirs(&dirs, &pool, "local:race");
+        tokio::pin!(sync);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut sync)
+                .await
+                .is_err()
+        );
+        sqlx::query("DELETE FROM instances WHERE id = 'local:race'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        io::remove_dir_all(dirs.instances_dir().join("Deleted"))
+            .await
+            .unwrap();
+        drop(guard);
+        sync.await.unwrap();
+        assert!(!dirs.instances_dir().join("Deleted").exists());
+        pool.close().await;
     }
 
     #[tokio::test]

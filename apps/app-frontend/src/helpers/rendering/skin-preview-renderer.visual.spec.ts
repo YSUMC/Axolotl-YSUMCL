@@ -1,19 +1,25 @@
 import * as THREE from 'three'
 import { afterEach, expect, it, vi } from 'vitest'
 
-import type { Skin } from '../skins'
+import type { Cape, Skin } from '../skins'
 import { setActiveSkinPreviews, skinBlobUrlMap, skinPreviewFailures } from './batch-skin-renderer'
 import { cancelSkinPreviews, generateSkinPreviews } from './skin-preview-renderer'
 
-const mocks = vi.hoisted(() => ({ normalize: vi.fn(), retrieve: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+    normalize: vi.fn(),
+    retrieve: vi.fn(),
+    store: vi.fn(),
+    cape: vi.fn(),
+}))
 vi.mock('../skins', () => ({
     get_normalized_skin_texture: mocks.normalize,
     determineModelType: async () => 'CLASSIC',
+    getCapePreviewUrl: (url?: string) => url,
 }))
 vi.mock('../storage/skin-preview-storage', () => ({
     skinPreviewStorage: {
         batchRetrieve: mocks.retrieve,
-        store: vi.fn(),
+        store: mocks.store,
         cleanupInvalidKeys: vi.fn(),
     },
 }))
@@ -26,7 +32,8 @@ vi.mock('../storage/head-storage', () => ({
 }))
 vi.mock('@modrinth/ui', () => ({
     loadSkinRendering: async () => ({
-        setupSkinModel: async () => {
+        setupSkinModel: async (_model: string, _texture: string, cape?: string) => {
+            if (cape) await mocks.cape(cape)
             const model = new THREE.Group()
             const head = new THREE.Object3D()
             head.name = 'Head'
@@ -43,6 +50,7 @@ afterEach(() => {
     cancelSkinPreviews()
     setActiveSkinPreviews([])
     vi.clearAllMocks()
+    mocks.cape.mockReset()
 })
 
 it('continues past a broken fourth texture and retries it without rerendering successful skins', async () => {
@@ -72,4 +80,24 @@ it('still renders when the preview cache cannot be read', async () => {
     mocks.normalize.mockResolvedValue('data:image/png;base64,test')
     await generateSkinPreviews([{ texture_key: '1', variant: 'CLASSIC' } as Skin], [])
     expect(skinBlobUrlMap.has('1+CLASSIC+no-cape')).toBe(true)
+})
+
+it('shows the first skin when its cape fails and does not persist the incomplete preview', async () => {
+    const skin = { texture_key: 'equipped', variant: 'SLIM', cape_id: 'cape' } as Skin
+    const capes = [{ id: 'cape', texture: 'https://skin.ysumc.net/textures/cape' }] as Cape[]
+    mocks.retrieve.mockResolvedValue({})
+    mocks.normalize.mockResolvedValue('data:image/png;base64,test')
+    mocks.cape.mockRejectedValue(new Error('Cape blocked by CORS'))
+    await generateSkinPreviews([skin], capes)
+    expect(skinBlobUrlMap.has('equipped+SLIM+cape')).toBe(true)
+    expect(skinPreviewFailures.size).toBe(0)
+    expect(mocks.store).not.toHaveBeenCalled()
+
+    setActiveSkinPreviews([])
+    mocks.cape.mockResolvedValue(undefined)
+    await generateSkinPreviews([skin], capes)
+    expect(mocks.store).toHaveBeenCalledWith(
+        'equipped+SLIM+cape',
+        expect.objectContaining({ capeOmitted: false }),
+    )
 })

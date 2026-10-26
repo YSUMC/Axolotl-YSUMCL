@@ -8,6 +8,7 @@ const config: Config = {
         './src/components/**/*.{js,vue,ts}',
         './src/layouts/**/*.vue',
         './src/pages/**/*.vue',
+        './src/preview/**/*.vue',
         './src/plugins/**/*.{js,ts}',
         './src/App.vue',
         './src/error.vue',

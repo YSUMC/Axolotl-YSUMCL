@@ -15,9 +15,6 @@ use theseus::{
 use tokio::time::Instant;
 use url::Url;
 
-const UPDATE_SERVER_LATEST_URL: &str = "https://skin.ysumc.net/api/launcher/update/{{target}}/{{arch}}/{{current_version}}";
-const UPDATE_SERVER_API: &str =
-    "https://skin.ysumc.net/api/launcher/update/versions";
 const UPDATE_SERVER_BASE: &str = "https://skin.ysumc.net/";
 
 // The updater plugin builds `Update` with no request timeout, so a stalled
@@ -91,23 +88,34 @@ fn apt_deb_arch() -> Result<&'static str> {
 }
 
 async fn fetch_apt_deb_asset(version: &str) -> Result<AptDebAsset> {
-    let response = ClientBuilder::new()
-        .user_agent(launcher_user_agent())
-        .timeout(UPDATE_DOWNLOAD_TIMEOUT)
-        .build()?
-        .get(UPDATE_SERVER_API)
-        .send()
-        .await?;
+    let url =
+        format!("{}/update/versions", theseus::branding::active().api_base);
+    let catalog: VersionsResponse = if theseus::branding::active().id == "ysumc"
+    {
+        serde_json::from_str(&theseus::launcher_site::fetch_text(&url).await?)
+            .map_err(theseus::Error::from)?
+    } else {
+        let response = ClientBuilder::new()
+            .user_agent(launcher_user_agent())
+            .timeout(UPDATE_DOWNLOAD_TIMEOUT)
+            .build()?
+            .get(format!(
+                "{}/update/versions",
+                theseus::branding::active().api_base
+            ))
+            .send()
+            .await?;
 
-    if !response.status().is_success() {
-        return Err(Error::Network(format!(
-            "Failed to fetch update catalog: {}",
-            response.status()
-        ))
-        .into());
-    }
+        if !response.status().is_success() {
+            return Err(Error::Network(format!(
+                "Failed to fetch update catalog: {}",
+                response.status()
+            ))
+            .into());
+        }
 
-    let catalog: VersionsResponse = response.json().await?;
+        response.json().await?
+    };
     let release = catalog
         .versions
         .iter()
@@ -184,7 +192,11 @@ fn update_platform() -> Result<&'static str> {
 }
 
 fn update_endpoint() -> Result<Url> {
-    Url::parse(UPDATE_SERVER_LATEST_URL).map_err(|error| {
+    Url::parse(&format!(
+        "{}/update/{{{{target}}}}/{{{{arch}}}}/{{{{current_version}}}}",
+        theseus::branding::active().api_base
+    ))
+    .map_err(|error| {
         theseus::Error::from(theseus::ErrorKind::OtherError(error.to_string()))
             .into()
     })
@@ -202,6 +214,7 @@ async fn check_with_endpoints<R: Runtime>(
     let platform = update_platform()?;
     let current_version =
         webview.app_handle().package_info().version.to_string();
+    let scope = theseus::launcher_site::account_scope().await?;
     let mut updater = webview
         .updater_builder()
         .pubkey(public_key)
@@ -210,6 +223,13 @@ async fn check_with_endpoints<R: Runtime>(
         .header("X-YSUMC-Channel", channel)?
         .header("X-Axolotl-Platform", platform)?
         .header("X-Axolotl-Version", current_version)?;
+
+    if let Some(authorization) =
+        theseus::launcher_site::authorization(update_endpoint()?.as_str())
+            .await?
+    {
+        updater = updater.header("Authorization", authorization)?;
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -238,7 +258,15 @@ async fn check_with_endpoints<R: Runtime>(
     }
 
     let updater = updater.build()?;
-    updater.check().await.map_err(Into::into)
+    let result = updater.check().await?;
+    if scope != theseus::launcher_site::account_scope().await? {
+        return Err(theseus::ErrorKind::InputError(
+            "Launcher account changed; check for updates again".into(),
+        )
+        .as_error()
+        .into());
+    }
+    Ok(result)
 }
 
 /// Check the updater manifest through the configured Update Server endpoint.
@@ -250,6 +278,8 @@ async fn check_with_updater<R: Runtime>(
         return Ok(None);
     };
     update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
+    // Metadata is authenticated, but artifact URLs can belong to a public CDN.
+    update.headers.remove(reqwest::header::AUTHORIZATION);
 
     // On Debian and derivatives the plugin's minisign signature check cannot
     // validate the unsigned .deb, so point the download at the deb from the
@@ -349,6 +379,20 @@ pub async fn enqueue_update_for_installation<R: Runtime>(
     let pending_data = webview.state::<PendingUpdateData>().inner();
 
     let update = webview.resources_table().get::<Update>(rid)?;
+    if theseus::branding::active().id == "ysumc" {
+        let channel = update
+            .headers
+            .get("X-YSUMC-Channel")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("release");
+        let fresh = check_with_endpoints(&webview, channel).await?;
+        let allowed = fresh
+            .as_ref()
+            .is_some_and(|candidate| candidate.version == update.version);
+        if !allowed {
+            return Err(theseus::ErrorKind::InputError("This account cannot receive this launcher update; check for updates again".into()).as_error().into());
+        }
+    }
 
     let progress = init_loading(
         LoadingBarType::LauncherUpdate {

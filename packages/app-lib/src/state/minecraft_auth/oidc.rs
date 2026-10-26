@@ -279,8 +279,16 @@ pub(super) async fn refresh_credentials_with_oidc(
     exec: impl sqlx::Executor<'_, Database = Sqlite> + Copy,
 ) -> crate::Result<()> {
     let provider = provider_metadata().await?;
+    refresh_with_provider(credentials, &provider, exec).await
+}
+
+async fn refresh_with_provider(
+    credentials: &mut Credentials,
+    provider: &ProviderMetadata,
+    exec: impl sqlx::Executor<'_, Database = Sqlite> + Copy,
+) -> crate::Result<()> {
     let tokens =
-        match request_refreshed_tokens(&provider, &credentials.refresh_token)
+        match request_refreshed_tokens(provider, &credentials.refresh_token)
             .await
         {
             Ok(tokens) => tokens,
@@ -298,6 +306,7 @@ pub(super) async fn refresh_credentials_with_oidc(
         credentials.refresh_token = refresh_token;
     }
     credentials.expires = Utc::now() + lifetime;
+    credentials.persist_refreshed(exec).await?;
 
     match fetch_selected_profile(
         &provider.userinfo_endpoint,
@@ -315,7 +324,7 @@ pub(super) async fn refresh_credentials_with_oidc(
         ),
     }
 
-    credentials.upsert(exec).await?;
+    credentials.persist_refreshed(exec).await?;
 
     Ok(())
 }
@@ -398,7 +407,12 @@ async fn complete_login(
 /// Lifetime of the freshly issued access token, with a conservative fallback for
 /// providers that omit `expires_in`.
 fn token_lifetime(tokens: &OidcTokens) -> Duration {
-    Duration::seconds(tokens.expires_in.unwrap_or(3600).max(60) as i64)
+    // Never lengthen a short-lived token beyond the provider's expiry.
+    tokens
+        .expires_in
+        .and_then(|seconds| i64::try_from(seconds).ok())
+        .and_then(Duration::try_seconds)
+        .unwrap_or_else(|| Duration::hours(1))
 }
 
 /// Reads the OpenID provider description the account site announces.
@@ -518,12 +532,48 @@ async fn fetch_selected_profile(
         .send()
         .await?;
 
+    if matches!(response.status().as_u16(), 401 | 403) {
+        return Err(ErrorKind::CredentialsExpired {
+            detail: "The account site rejected this access token.".into(),
+        }
+        .as_error());
+    }
     if !response.status().is_success() {
         return Err(response_error(response).await);
     }
 
     let userinfo: UserInfoResponse = response.json().await?;
     Ok(userinfo.selected_profile)
+}
+
+pub(super) async fn validate_credentials(
+    credentials: &Credentials,
+) -> crate::Result<bool> {
+    validate_with_provider(credentials, &provider_metadata().await?).await
+}
+
+async fn validate_with_provider(
+    credentials: &Credentials,
+    provider: &ProviderMetadata,
+) -> crate::Result<bool> {
+    // Connect deployments may disable the entire classic authserver, including
+    // validate. Userinfo checks expiry, revocation and the selected character.
+    match fetch_selected_profile(
+        &provider.userinfo_endpoint,
+        &credentials.access_token,
+    )
+    .await
+    {
+        Ok(Some(profile)) => Ok(profile.id == credentials.offline_profile.id
+            && profile.name == credentials.offline_profile.name),
+        Ok(None) => Ok(false),
+        Err(error)
+            if matches!(&*error.raw, ErrorKind::CredentialsExpired { .. }) =>
+        {
+            Ok(false)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 async fn request_device_code(
@@ -615,7 +665,9 @@ async fn request_refreshed_tokens(
     let status = response.status();
     let body = response.text().await?;
     if !status.is_success() {
-        if let Some(detail) = refused_session_detail(&body) {
+        if matches!(status.as_u16(), 400 | 401 | 403)
+            && let Some(detail) = refused_session_detail(&body)
+        {
             return Err(ErrorKind::CredentialsExpired { detail }.as_error());
         }
         return Err(oauth_error(status, &body));
@@ -743,7 +795,206 @@ fn device_login_expired() -> crate::Error {
 
 #[cfg(test)]
 mod tests {
-    use super::refused_session_detail;
+    use super::super::refresh_tests::{mock_http, saved_account};
+    use super::*;
+    use serde_json::json;
+
+    fn mock_provider(root: &str) -> ProviderMetadata {
+        ProviderMetadata {
+            token_endpoint: format!("{root}/token"),
+            userinfo_endpoint: format!("{root}/userinfo"),
+            device_authorization_endpoint: format!("{root}/device"),
+            client_id: "launcher-test".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn expired_access_token_rotates_without_interactive_login() {
+        let (pool, mut account) =
+            saved_account(ysumc::YGGDRASIL_API_ROOT, true).await;
+        let mut server = mock_http(vec![
+            Some((200, json!({"access_token":"renewed-access", "refresh_token":"renewed-refresh", "expires_in":3600}))),
+            Some((200, json!({"selectedProfile":{"id":account.offline_profile.id.simple().to_string(),"name":"Renamed"}}))),
+        ]).await;
+        let provider = mock_provider(&server.root);
+        refresh_with_provider(&mut account, &provider, &pool)
+            .await
+            .unwrap();
+        let request = server.requests.recv().await.unwrap();
+        assert!(request.starts_with("POST /token "));
+        let form = url::form_urlencoded::parse(
+            request.split("\r\n\r\n").nth(1).unwrap().as_bytes(),
+        )
+        .into_owned()
+        .collect::<HashMap<_, _>>();
+        assert_eq!(form["grant_type"], "refresh_token");
+        assert_eq!(form["refresh_token"], "old-refresh");
+        assert_eq!(form["client_id"], "launcher-test");
+        let userinfo =
+            server.requests.recv().await.unwrap().to_ascii_lowercase();
+        assert!(userinfo.contains("authorization: bearer renewed-access"));
+        let stored = Credentials::get_active_without_refresh(&pool)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.access_token, "renewed-access");
+        assert_eq!(stored.refresh_token, "renewed-refresh");
+        assert_eq!(stored.offline_profile.name, "Renamed");
+        assert!(!stored.needs_refresh());
+    }
+
+    #[tokio::test]
+    async fn rotated_tokens_survive_cancellation_during_profile_lookup() {
+        let (pool, mut account) =
+            saved_account(ysumc::YGGDRASIL_API_ROOT, true).await;
+        let mut server = mock_http(vec![
+            Some((200, json!({"access_token":"renewed-access", "refresh_token":"renewed-refresh", "expires_in":3600}))),
+            None,
+        ]).await;
+        let provider = mock_provider(&server.root);
+        // A user switching accounts while this request is in flight must remain
+        // on their new selection after the old account's token is persisted.
+        sqlx::query("UPDATE minecraft_users SET active = FALSE")
+            .execute(&pool)
+            .await
+            .unwrap();
+        {
+            let refresh = refresh_with_provider(&mut account, &provider, &pool);
+            tokio::pin!(refresh);
+            tokio::select! {
+                result = &mut refresh => panic!("profile lookup should remain pending: {result:?}"),
+                ready = tokio::time::timeout(StdDuration::from_secs(5), async {
+                    assert!(server.requests.recv().await.unwrap().starts_with("POST /token "));
+                    assert!(server.requests.recv().await.unwrap().starts_with("GET /userinfo "));
+                }) => ready.unwrap(),
+            }
+        }
+        let stored = Credentials::get_all_without_refresh(&pool)
+            .await
+            .unwrap()
+            .remove(0);
+        assert_eq!(stored.refresh_token, "renewed-refresh");
+        assert_eq!(stored.access_token, "renewed-access");
+        assert!(!stored.active);
+    }
+
+    #[tokio::test]
+    async fn transient_server_errors_do_not_remove_saved_login() {
+        for status in [429, 500, 502] {
+            let (pool, mut account) =
+                saved_account(ysumc::YGGDRASIL_API_ROOT, true).await;
+            let server = mock_http(vec![Some((
+                status,
+                json!({"error":"invalid_token"}),
+            ))])
+            .await;
+            let error = refresh_with_provider(
+                &mut account,
+                &mock_provider(&server.root),
+                &pool,
+            )
+            .await
+            .unwrap_err();
+            assert!(!matches!(
+                &*error.raw,
+                ErrorKind::CredentialsExpired { .. }
+            ));
+            let stored = Credentials::get_active_without_refresh(&pool)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(stored.refresh_token, "old-refresh");
+        }
+    }
+
+    #[tokio::test]
+    async fn revoked_refresh_token_requires_new_authorization() {
+        let (pool, mut account) =
+            saved_account(ysumc::YGGDRASIL_API_ROOT, true).await;
+        let server =
+            mock_http(vec![Some((400, json!({"error":"invalid_grant"})))])
+                .await;
+        let error = refresh_with_provider(
+            &mut account,
+            &mock_provider(&server.root),
+            &pool,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(&*error.raw, ErrorKind::CredentialsExpired { .. }));
+        assert!(
+            Credentials::get_active_without_refresh(&pool)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn omitted_refresh_token_and_failed_profile_lookup_keep_session_usable()
+     {
+        let (pool, mut account) =
+            saved_account(ysumc::YGGDRASIL_API_ROOT, true).await;
+        let server = mock_http(vec![
+            Some((
+                200,
+                json!({"access_token":"renewed-access","expires_in":3600}),
+            )),
+            Some((503, json!({"error":"temporarily_unavailable"}))),
+        ])
+        .await;
+        refresh_with_provider(
+            &mut account,
+            &mock_provider(&server.root),
+            &pool,
+        )
+        .await
+        .unwrap();
+        let stored = Credentials::get_active_without_refresh(&pool)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.access_token, "renewed-access");
+        assert_eq!(stored.refresh_token, "old-refresh");
+        assert_eq!(stored.offline_profile.name, "BeforeRefresh");
+    }
+
+    #[test]
+    fn respects_short_token_lifetime() {
+        assert_eq!(
+            token_lifetime(&OidcTokens {
+                access_token: "test".into(),
+                refresh_token: None,
+                expires_in: Some(10)
+            }),
+            Duration::seconds(10)
+        );
+    }
+
+    #[tokio::test]
+    async fn connect_validation_uses_userinfo_and_distinguishes_expiry_from_outage()
+     {
+        let (_pool, account) =
+            saved_account(ysumc::YGGDRASIL_API_ROOT, true).await;
+        for (status, expected) in [
+            (200, Some(true)),
+            (401, Some(false)),
+            (403, Some(false)),
+            (503, None),
+        ] {
+            let mut server = mock_http(vec![Some((status, json!({"selectedProfile": {
+                "id": account.offline_profile.id.simple().to_string(), "name": account.offline_profile.name,
+            }})))]).await;
+            let result =
+                validate_with_provider(&account, &mock_provider(&server.root))
+                    .await;
+            assert_eq!(result.ok(), expected);
+            let request =
+                server.requests.recv().await.unwrap().to_ascii_lowercase();
+            assert!(request.starts_with("get /userinfo "));
+            assert!(request.contains("authorization: bearer old-access"));
+        }
+    }
 
     #[test]
     fn a_refused_grant_is_the_only_refusal_that_ends_the_session() {

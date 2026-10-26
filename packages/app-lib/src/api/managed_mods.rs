@@ -206,8 +206,9 @@ pub(crate) async fn verify_and_repair(
     let state = State::get().await?;
     let digest = spec
         .pack
-        .sha1
+        .sha512
         .as_deref()
+        .or(spec.pack.sha1.as_deref())
         .ok_or_else(|| input("官方包缺少校验值"))?;
     let size = spec.pack.size.ok_or_else(|| input("官方包缺少大小"))?;
     let pack_path = state
@@ -215,21 +216,39 @@ pub(crate) async fn verify_and_repair(
         .caches_dir()
         .join("ysumc-packs")
         .join(format!("{}.mrpack", digest.to_lowercase()));
-    if !matches(&pack_path, digest, size).await {
-        let bytes = fetch(
-            &spec.pack.url,
-            Some(digest),
-            None,
-            None,
-            &state.fetch_semaphore,
+    if crate::api::pack::install_from::verify_pack_file(
+        &pack_path,
+        spec.pack.sha1.as_deref(),
+        spec.pack.sha512.as_deref(),
+        Some(size),
+    )
+    .await
+    .is_err()
+    {
+        use crate::util::fetch::{
+            ContentValidation, DownloadRequest, Integrity, ResourceClass,
+            download_to_path,
+        };
+        tokio::fs::create_dir_all(pack_path.parent().unwrap()).await?;
+        download_to_path(
+            DownloadRequest::new(&spec.pack.url, ResourceClass::Modpack)
+                .with_integrity(Integrity {
+                    size: Some(size),
+                    sha1: spec
+                        .pack
+                        .sha1
+                        .clone()
+                        .filter(|_| spec.pack.sha512.is_none()),
+                    sha512: spec.pack.sha512.clone(),
+                    content: ContentValidation::Jar,
+                    ..Integrity::default()
+                }),
+            &pack_path,
+            &state.download_semaphore,
             &state.pool,
+            None,
         )
         .await?;
-        if bytes.len() as u64 != size {
-            return Err(input("官方包下载大小不匹配"));
-        }
-        tokio::fs::create_dir_all(pack_path.parent().unwrap()).await?;
-        tokio::fs::write(&pack_path, bytes).await?;
     }
     let parse_path = pack_path.clone();
     let expected =

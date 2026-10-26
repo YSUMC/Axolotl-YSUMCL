@@ -29,6 +29,40 @@ fn runtime_commands(source: &str) -> BTreeSet<&str> {
         .collect()
 }
 
+#[test]
+fn cape_commands_are_registered_and_allowed_for_the_main_window() {
+    let runtime =
+        runtime_commands(include_str!("../src/api/minecraft_skins.rs"));
+    let manifest =
+        manifest_commands(include_str!("../build.rs"), "minecraft-skins");
+    assert!(runtime.difference(&manifest).next().is_none());
+    for command in ["upload_cape", "equip_cape", "remove_cape"] {
+        assert!(runtime.contains(command));
+        assert!(manifest.contains(command));
+    }
+    let capabilities: serde_json::Value =
+        serde_json::from_str(include_str!("../capabilities/plugins.json"))
+            .unwrap();
+    assert!(
+        capabilities["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|window| window == "main")
+    );
+    assert!(
+        capabilities["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|permission| permission == "minecraft-skins:default")
+    );
+    assert!(
+        include_str!("../src/main.rs")
+            .contains(".plugin(api::minecraft_skins::init())")
+    );
+}
+
 fn manifest_commands<'a>(source: &'a str, plugin: &str) -> BTreeSet<&'a str> {
     let instance_plugin = source
         .match_indices(".plugin(")
@@ -136,4 +170,32 @@ fn mojang_monitor_commands_are_registered_and_allowed_for_the_main_window() {
                 .any(|value| value == permission)
         );
     }
+}
+
+#[test]
+fn launcher_site_command_is_allowed_for_the_main_window() {
+    let runtime = runtime_commands(include_str!("../src/api/auth.rs"));
+    let manifest = manifest_commands(include_str!("../build.rs"), "auth");
+    assert!(runtime.contains("launcher_site_document"));
+    assert!(manifest.contains("launcher_site_document"));
+    let capabilities: serde_json::Value =
+        serde_json::from_str(include_str!("../capabilities/plugins.json"))
+            .unwrap();
+    assert!(
+        capabilities["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|window| window == "main")
+    );
+    assert!(
+        capabilities["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|permission| permission == "auth:default")
+    );
+    assert!(
+        include_str!("../src/main.rs").contains(".plugin(api::auth::init())")
+    );
 }

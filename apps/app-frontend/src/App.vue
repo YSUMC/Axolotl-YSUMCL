@@ -22,7 +22,6 @@ import {
     SpinnerIcon,
     UserIcon,
     UsersIcon,
-    WorldIcon,
     XIcon,
 } from '@modrinth/assets'
 import {
@@ -74,7 +73,7 @@ import { saveWindowState, StateFlags } from '@tauri-apps/plugin-window-state'
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { type RouteLocationNormalizedLoaded, RouterView, useRoute, useRouter } from 'vue-router'
 
-import { getAnnouncementByVersion } from '@/announcements/catalog'
+import { isMutmc, launcherBrand } from '@/branding'
 import InstanceExportModal from '@/components/lab/recipe-generator/InstanceExportModal.vue'
 import AccountsCard from '@/components/ui/AccountsCard.vue'
 import UpdateAnnouncementModal from '@/components/ui/announcement/UpdateAnnouncementModal.vue'
@@ -85,6 +84,7 @@ import ContentInstallPreviewModal from '@/components/ui/ContentInstallPreviewMod
 import ErrorModal from '@/components/ui/ErrorModal.vue'
 import AddServerToInstanceModal from '@/components/ui/install_flow/AddServerToInstanceModal.vue'
 import UnknownPackWarningModal from '@/components/ui/install_flow/UnknownPackWarningModal.vue'
+import MicrosoftLoginGate from '@/components/ui/login/MicrosoftLoginGate.vue'
 import YsumcLoginGate from '@/components/ui/login/YsumcLoginGate.vue'
 import MinecraftAuthErrorModal from '@/components/ui/minecraft-auth-error-modal/MinecraftAuthErrorModal.vue'
 import MinecraftCrashModal from '@/components/ui/MinecraftCrashModal.vue'
@@ -107,6 +107,7 @@ import WindowControls from '@/components/ui/WindowControls.vue'
 import { useCheckDisableMouseover } from '@/composables/macCssFix.js'
 import { isOfflineAccountRestrictedError } from '@/composables/useAntiPiracyStatus'
 import { useDropImport } from '@/composables/useDropImport'
+import { rememberLauncherRelease } from '@/composables/useLauncherReleases'
 import { minecraftLaunchErrorKey } from '@/composables/useMinecraftLaunchError'
 import { setupMojangAuthMonitor, useMojangAuthStatus } from '@/composables/useMojangAuth'
 import { useNetworkStatus } from '@/composables/useNetworkStatus'
@@ -133,6 +134,7 @@ import { fileOperationError } from '@/helpers/file-operation-errors'
 import { install_create_modpack_instance, install_get_modpack_preview } from '@/helpers/install'
 import { type DirectLinkSyncReport, get as getInstance, run } from '@/helpers/instance'
 import { type BackupOperation, cancelBackup, listBackupOperations } from '@/helpers/instance-backup'
+import { shouldWaitForRelease } from '@/helpers/launcher-releases'
 import { cancelLogin, get as getCreds, login, logout } from '@/helpers/mr_auth.ts'
 import { installNativeEditMenuBoundary } from '@/helpers/native-edit-menu'
 import { getNavShortcutEnabled } from '@/helpers/nav-shortcut-state'
@@ -149,7 +151,6 @@ import {
     get as getSettings,
     getLastBrowseContentProjectType,
     getPrivacySettings,
-    getUpdateChannel,
     getUpdatePreferences,
     type PrivacySettings,
     savePrivacySettings,
@@ -181,7 +182,12 @@ import {
     type WindowFrameResult,
 } from '@/helpers/window-appearance'
 import { start_join_server, start_join_singleplayer_world } from '@/helpers/worlds.ts'
-import { refreshYsumcSession, ysumcSessionChecked, ysumcSignedIn } from '@/helpers/ysumc-session'
+import {
+    refreshYsumcSession,
+    ysumcAccount,
+    ysumcSessionChecked,
+    ysumcSignedIn,
+} from '@/helpers/ysumc-session'
 import { applyLocalePreference, setFollowSystemLocale } from '@/i18n.config'
 import {
     appUpdateState,
@@ -995,6 +1001,7 @@ const messages = defineMessages({
         id: 'app.navigation.home',
         defaultMessage: 'Home',
     },
+    partners: { id: 'app.navigation.partners', defaultMessage: 'Partner clubs' },
     worlds: {
         id: 'app.navigation.worlds',
         defaultMessage: 'Worlds',
@@ -2487,6 +2494,8 @@ function getCurrentUpdatePromptStage() {
 function scheduleDelayedUpdatePopup() {
     clearDelayedUpdatePopup()
 
+    if (updatesPaused.value || (!metered.value && !finishedDownloading.value)) return
+
     const version = availableUpdate.value?.version
     if (!version) {
         return
@@ -2566,47 +2575,57 @@ function showDelayedUpdatePopup() {
             ],
         })
     } else {
-        scheduleDelayedUpdatePopup()
         return
     }
 
     markAppUpdatePopupShown(update.version, stage)
 }
 
-let lastUpdateChannel = 'release'
+let updateAudienceGeneration = 0
+watch(
+    () => ysumcAccount.value?.account_id,
+    () => {
+        if (isMutmc) return
+        ++updateAudienceGeneration
+        availableUpdate.value = null
+        updateSize.value = null
+        finishedDownloading.value = false
+        clearDelayedUpdatePopup()
+        if (stateInitialized.value) void performUpdateCheck().catch(handleError)
+    },
+    { flush: 'sync' },
+)
 
-async function performUpdateCheck() {
-    const channel = await getUpdateChannel()
+async function performUpdateCheck({ manual = false } = {}) {
+    const generation = updateAudienceGeneration
+    const channel = 'release'
     const preferences = await getUpdatePreferences()
     updatesPaused.value = preferences.updatesPaused
     if (updatesPaused.value) return 'paused'
-    if (channel !== lastUpdateChannel) {
-        availableUpdate.value = null
-        updateSize.value = null
-        appUpdateDownload.progress.value = 0
-        finishedDownloading.value = false
-        downloading.value = false
-        lastUpdateChannel = channel
-    }
 
     const update = await checkAppUpdate(channel)
+    if (generation !== updateAudienceGeneration) return 'up-to-date'
     if (!update) {
+        availableUpdate.value = null
+        clearDelayedUpdatePopup()
         console.log('No update available')
         return 'up-to-date'
     }
 
-    const publishedAt = Date.parse(update.publishedAt ?? '')
+    rememberLauncherRelease({
+        version: update.version,
+        notes: update.body ?? null,
+        published_at: update.publishedAt ?? '',
+    })
     if (
-        channel === 'release' &&
-        !preferences.immediateUpdateFetch &&
-        !update.forceUpdate &&
-        (!Number.isFinite(publishedAt) || Date.now() < publishedAt + 24 * 60 * 60 * 1000)
-    ) {
-        console.warn(
-            Number.isFinite(publishedAt)
-                ? `Update ${update.version} is waiting for the release delay.`
-                : `Update ${update.version} has no valid published_at timestamp.`,
+        shouldWaitForRelease(
+            update.publishedAt,
+            preferences.immediateUpdateFetch,
+            manual,
+            !!update.forceUpdate,
         )
+    ) {
+        console.log(`Update ${update.version} is waiting for the selected release delay.`)
         return 'up-to-date'
     }
 
@@ -2627,6 +2646,7 @@ async function performUpdateCheck() {
     console.log(`Update ${update.version} is available.`)
 
     metered.value = await isNetworkMetered()
+    if (generation !== updateAudienceGeneration) return 'up-to-date'
 
     if (!metered.value) {
         console.log('Starting download of update')
@@ -2638,7 +2658,9 @@ async function performUpdateCheck() {
     }
 
     getUpdateSize(update.rid)
-        .then((size) => (updateSize.value = size))
+        .then((size) => {
+            if (generation === updateAudienceGeneration) updateSize.value = size
+        })
         .catch((error) => console.warn('Failed to fetch update size', error))
     return 'available'
 }
@@ -2656,7 +2678,7 @@ async function manualUpdateCheck() {
         return 'offline'
     }
 
-    return await performUpdateCheck()
+    return await performUpdateCheck({ manual: true })
 }
 
 async function downloadAvailableUpdate() {
@@ -2664,6 +2686,7 @@ async function downloadAvailableUpdate() {
 }
 
 async function downloadUpdate(versionToDownload) {
+    const generation = updateAudienceGeneration
     if (!versionToDownload) {
         handleError(`Failed to download update: no version available`)
         return
@@ -2681,6 +2704,13 @@ async function downloadUpdate(versionToDownload) {
         enqueueUpdateForInstallation(versionToDownload.rid)
             .then(() => {
                 downloading.value = false
+                if (generation !== updateAudienceGeneration) {
+                    appUpdateDownload.progress.value = 0
+                    unlistenUpdateDownload?.().then(() => {
+                        unlistenUpdateDownload = null
+                    })
+                    return
+                }
                 finishedDownloading.value = true
                 unlistenUpdateDownload?.().then(() => {
                     unlistenUpdateDownload = null
@@ -2729,11 +2759,7 @@ setAppUpdateActions({
     download: downloadAvailableUpdate,
     install: installUpdate,
     changelog: (version) => {
-        if (version && getAnnouncementByVersion(version)) {
-            updateAnnouncementModal.value?.show(version)
-        } else {
-            openUrl(AxolotlBrandConfig.website)
-        }
+        if (version) updateAnnouncementModal.value?.show(version)
     },
 })
 
@@ -2899,33 +2925,12 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
                     <HomeIcon />
                 </NavButton>
                 <NavButton
-                    v-if="!themeStore.isNavItemHidden('screenshots')"
-                    v-tooltip.right="formatMessage(messages.screenshots)"
-                    data-onboarding-id="nav-screenshots"
-                    to="/screenshots"
-                    :is-primary="(r) => r.path.startsWith('/screenshots')"
+                    v-if="launcherBrand.partners"
+                    v-tooltip.right="formatMessage(messages.partners)"
+                    data-onboarding-id="nav-partners"
+                    to="/partners"
                 >
-                    <ImagesIcon />
-                </NavButton>
-                <NavButton
-                    v-if="
-                        themeStore.featureFlags.worlds_tab && !themeStore.isNavItemHidden('worlds')
-                    "
-                    v-tooltip.right="formatMessage(messages.worlds)"
-                    to="/worlds"
-                >
-                    <WorldIcon />
-                </NavButton>
-                <NavButton
-                    v-if="!themeStore.isNavItemHidden('discover')"
-                    v-tooltip.right="formatMessage(messages.discoverContent)"
-                    data-onboarding-id="nav-discover"
-                    :to="discoverContentPath"
-                    :disabled="offline"
-                    :is-primary="() => route.path.startsWith('/browse') && !route.query.i"
-                    :is-subpage="(route) => route.path.startsWith('/project') && !route.query.i"
-                >
-                    <CompassIcon />
+                    <UsersIcon />
                 </NavButton>
                 <NavButton
                     v-if="!themeStore.isNavItemHidden('skins')"
@@ -2934,14 +2939,6 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
                     to="/skins"
                 >
                     <ChangeSkinIcon />
-                </NavButton>
-                <NavButton
-                    v-if="!themeStore.isNavItemHidden('multiplayer')"
-                    v-tooltip.right="formatMessage(messages.multiplayer)"
-                    to="/multiplayer"
-                    :is-primary="(r) => r.path.startsWith('/multiplayer')"
-                >
-                    <UsersIcon />
                 </NavButton>
                 <NavButton
                     v-if="!themeStore.isNavItemHidden('library')"
@@ -2958,6 +2955,26 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
                     "
                 >
                     <LibraryIcon />
+                </NavButton>
+                <NavButton
+                    v-if="!themeStore.isNavItemHidden('discover')"
+                    v-tooltip.right="formatMessage(messages.discoverContent)"
+                    data-onboarding-id="nav-discover"
+                    :to="discoverContentPath"
+                    :disabled="offline"
+                    :is-primary="() => route.path.startsWith('/browse') && !route.query.i"
+                    :is-subpage="(route) => route.path.startsWith('/project') && !route.query.i"
+                >
+                    <CompassIcon />
+                </NavButton>
+                <NavButton
+                    v-if="!themeStore.isNavItemHidden('screenshots')"
+                    v-tooltip.right="formatMessage(messages.screenshots)"
+                    data-onboarding-id="nav-screenshots"
+                    to="/screenshots"
+                    :is-primary="(r) => r.path.startsWith('/screenshots')"
+                >
+                    <ImagesIcon />
                 </NavButton>
                 <NavButton
                     v-tooltip.right="'云地图'"
@@ -3204,6 +3221,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
     <RemoteAnnouncements
         :ready="
             stateInitialized &&
+            ysumcSignedIn &&
             !privacyConsentPending &&
             !showOnboarding &&
             !updateAnnouncementShowing
@@ -3493,7 +3511,10 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
     >
         正在验证登录…
     </div>
-    <YsumcLoginGate v-if="loginGateVisible && ysumcSessionChecked" />
+    <component
+        :is="isMutmc ? MicrosoftLoginGate : YsumcLoginGate"
+        v-if="loginGateVisible && ysumcSessionChecked"
+    />
     <OnboardingOverlay
         :visible="showOnboarding && ysumcSignedIn"
         :mode="onboardingMode"

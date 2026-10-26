@@ -523,7 +523,7 @@ const pageTitle: MessageDescriptor = settingsPageTitle
                             "
                             @click="toggleDeveloperMode"
                         >
-                            <img class="size-8 object-contain" src="@/assets/axolotl.png" alt="" />
+                            <img class="size-8 object-contain" src="/ysumc/logo.svg" alt="" />
                         </button>
                         <div class="settings-footer-version min-w-0">
                             <p class="m-0 break-words">

@@ -1003,6 +1003,12 @@ impl State {
             )?;
 
         tracing::info!("Initializing directories");
+        DirectoryInfo::prepare_default_game_directory(
+            &mut settings,
+            &pool,
+            &app_identifier,
+        )
+        .await?;
         DirectoryInfo::move_launcher_directory(
             &mut settings,
             &pool,

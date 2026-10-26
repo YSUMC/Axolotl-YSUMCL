@@ -1,21 +1,22 @@
 <template>
     <Transition name="splash-fade" @after-leave="onAfterLeave">
-        <div v-if="!doneLoading" class="fixed inset-0 z-[10000] dark">
+        <div v-if="!doneLoading" class="fixed inset-0 z-[10000] bg-white text-[#3b3b3b]">
             <div
                 class="absolute h-screen w-full flex flex-col justify-center items-center gap-4 z-[9998]"
                 data-tauri-drag-region
             >
-                <img class="app-logo" src="@/assets/axolotl.png" alt="Axolotl Launcher" />
+                <img
+                    class="h-[min(12rem,35vh)] w-[min(12rem,35vw)] object-contain"
+                    :src="isMutmc ? '/brands/mutmc/icon.webp' : '/ysumc/logo.svg'"
+                    :alt="launcherBrand.shortName"
+                />
                 <ProgressBar
-                    class="max-w-xs"
+                    class="max-w-xs text-[#1f296a]"
                     :progress="Math.min(loadingProgress, 100)"
                     :max="100"
                 />
                 <span v-if="message">{{ message }}</span>
             </div>
-            <div class="gradient-bg" data-tauri-drag-region></div>
-            <div class="cube-bg"></div>
-            <div class="absolute top-0 left-0 w-full h-full bg-bg z-[9995]"></div>
         </div>
     </Transition>
 </template>
@@ -24,6 +25,7 @@
 import { defineMessages, injectLoadingState, ProgressBar, useVIntl } from '@modrinth/ui'
 import { ref, watch } from 'vue'
 
+import { isMutmc, launcherBrand } from '@/branding'
 import { loading_listener } from '@/helpers/events.js'
 
 const doneLoading = ref(false)
@@ -104,37 +106,5 @@ loading_listener(async (e) => {
 
 .splash-fade-leave-to {
     opacity: 0;
-}
-
-.app-logo {
-    height: min(18rem, 45vh);
-    width: min(18rem, 45vw);
-    object-fit: contain;
-}
-
-.gradient-bg {
-    position: absolute;
-    height: 100vh;
-    width: 100vw;
-    background:
-        linear-gradient(180deg, rgba(255, 77, 157, 0.24) 0%, rgba(48, 16, 40, 0.56) 97.29%),
-        linear-gradient(0deg, rgba(22, 18, 28, 0.68), rgba(22, 18, 28, 0.68));
-    z-index: 9997;
-}
-
-.cube-bg {
-    position: absolute;
-
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-
-    width: 180vw;
-    height: 180vh;
-    opacity: 0.8;
-    background: var(--surface-1) url('@/assets/loading/cube.png') center no-repeat;
-    background-size: contain;
-
-    z-index: 9996;
 }
 </style>

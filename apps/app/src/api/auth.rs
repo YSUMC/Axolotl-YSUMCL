@@ -16,6 +16,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             begin_ysumc_device_login,
             poll_ysumc_device_login,
             validate_ysumc_session,
+            launcher_site_document,
             check_reachable,
             check_mojang_services,
             set_mojang_auth_use_mirror,
@@ -51,6 +52,16 @@ pub async fn check_reachable() -> Result<()> {
 #[tauri::command]
 pub async fn validate_ysumc_session() -> Result<Option<String>> {
     Ok(minecraft_auth::validate_ysumc_session().await?)
+}
+
+/// Fetches only pinned skin-site documents. Tokens never cross the IPC boundary.
+#[tauri::command]
+pub async fn launcher_site_document(
+    document: theseus::launcher_site::Document,
+    version: Option<String>,
+    channel: Option<String>,
+) -> Result<serde_json::Value> {
+    Ok(theseus::launcher_site::document(document, version, channel).await?)
 }
 
 /// Checks all Mojang services that the Fallen proxy mirrors.

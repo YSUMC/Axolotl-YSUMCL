@@ -11,6 +11,7 @@ export interface RenderResult {
 
 export interface RawRenderResult {
     forwards: Blob
+    capeOmitted?: boolean
 }
 
 export const skinBlobUrlMap = reactive(new Map<string, RenderResult>())

@@ -1,5 +1,135 @@
 use super::*;
 
+#[tokio::test]
+async fn sha512_packs_are_retained_without_server_only_entries_pinning_all_caches()
+ {
+    let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+    sqlx::raw_sql("CREATE TABLE instances(id TEXT); CREATE TABLE managed_installations(instance_id TEXT, spec_json TEXT); INSERT INTO instances VALUES ('pack'), ('server');")
+        .execute(&pool).await.unwrap();
+    let hash = "a".repeat(128);
+    for (id, spec) in [
+        (
+            "pack",
+            serde_json::json!({"pack":{"kind":"mrpack", "sha512":hash, "sha1":null}}),
+        ),
+        (
+            "server",
+            serde_json::json!({"pack":{"kind":"server", "sha512":null, "sha1":null}}),
+        ),
+    ] {
+        sqlx::query("INSERT INTO managed_installations VALUES (?, ?)")
+            .bind(id)
+            .bind(spec.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let retained = retained_managed_packs(&pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .collect();
+    assert!(!disposable(
+        &format!("ysumc-packs/{hash}.mrpack"),
+        &retained
+    ));
+    assert!(disposable(
+        &format!("ysumc-packs/{}.mrpack", "b".repeat(128)),
+        &retained
+    ));
+    assert!(disposable(
+        &format!("ysumc-packs/{}.mrpack", "b".repeat(40)),
+        &retained
+    ));
+}
+
+#[tokio::test]
+async fn uninstall_cache_keeps_other_channel_packs_and_removes_only_orphans() {
+    let temp = tempfile::tempdir().unwrap();
+    let directories = DirectoryInfo {
+        settings_dir: temp.path().into(),
+        config_dir: temp.path().into(),
+        app_identifier: "test".into(),
+    };
+    let active = "a".repeat(40);
+    let orphan = "b".repeat(40);
+    for channel in ["release", "beta"] {
+        std::fs::create_dir_all(temp.path().join(channel)).unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(temp.path().join(channel).join("app.db"))
+                    .create_if_missing(true),
+            )
+            .await
+            .unwrap();
+        sqlx::raw_sql("CREATE TABLE install_jobs(status TEXT, state TEXT); CREATE TABLE instances(id TEXT PRIMARY KEY); CREATE TABLE managed_instances(instance_id TEXT); CREATE TABLE managed_installations(instance_id TEXT, spec_json TEXT);").execute(&pool).await.unwrap();
+        if channel == "beta" {
+            sqlx::query("INSERT INTO instances VALUES ('other-pack')")
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO managed_installations VALUES ('other-pack', ?)",
+            )
+            .bind(serde_json::json!({"pack":{"sha1":active}}).to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        pool.close().await;
+    }
+    let packs = temp.path().join("caches/ysumc-packs");
+    std::fs::create_dir_all(&packs).unwrap();
+    for name in [
+        format!("{active}.mrpack"),
+        format!("{orphan}.mrpack"),
+        format!("{orphan}.mrpack.part"),
+        "user-file.zip".into(),
+    ] {
+        std::fs::write(packs.join(name), b"pack").unwrap();
+    }
+    let retained = retained_content(&directories).await.unwrap();
+    let root = cache_root(&directories).unwrap();
+    let mut failures = Vec::new();
+    walk(&root, "", Some(&retained), &mut failures).unwrap();
+    assert!(failures.is_empty());
+    assert!(packs.join(format!("{active}.mrpack")).exists());
+    assert!(!packs.join(format!("{orphan}.mrpack")).exists());
+    assert!(packs.join(format!("{orphan}.mrpack.part")).exists());
+    assert!(packs.join("user-file.zip").exists());
+}
+
+#[tokio::test]
+async fn uninstall_cache_preserves_legacy_installed_packs_until_spec_is_known()
+{
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE TABLE install_jobs(status TEXT, state TEXT); CREATE TABLE instances(id TEXT); CREATE TABLE managed_instances(instance_id TEXT); INSERT INTO instances VALUES ('legacy'); INSERT INTO managed_instances VALUES ('legacy');").execute(&pool).await.unwrap();
+    let archive = format!("ysumc-packs/{}.mrpack", "a".repeat(40));
+    let retained = retained_in_channel(&pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .collect();
+    assert!(!disposable(&archive, &retained));
+    sqlx::query("DELETE FROM instances")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let retained = retained_in_channel(&pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .collect();
+    assert!(disposable(&archive, &retained));
+    pool.close().await;
+}
+
 #[test]
 fn cache_totals_include_previous_location_without_counting_shared_roots_twice()
 {

@@ -1,0 +1,24 @@
+{
+    "ysumc": {
+        "id": "ysumc",
+        "productName": "YSUMC Launcher",
+        "shortName": "YSUMC",
+        "identifier": "net.ysumc.launcher",
+        "scheme": "ysumc",
+        "website": "https://ysumc.net/",
+        "apiBase": "https://skin.ysumc.net/api/launcher",
+        "loginMode": "ysumc",
+        "partners": true
+    },
+    "mutmc": {
+        "id": "mutmc",
+        "productName": "MUTMCL",
+        "shortName": "MUTMCL",
+        "identifier": "live.mutmc.launcher",
+        "scheme": "mutmcl",
+        "website": "https://mutmc.live/",
+        "apiBase": "https://skin.ysumc.net/api/launcher/mutmc",
+        "loginMode": "microsoft",
+        "partners": false
+    }
+}

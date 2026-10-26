@@ -125,7 +125,7 @@ export const settingsCategoryDefinitions: SettingsCategoryDefinition[] = [
         id: 'network-multiplayer',
         name: defineMessage({
             id: 'app.settings.tabs.network-multiplayer',
-            defaultMessage: 'Network & multiplayer',
+            defaultMessage: 'Network settings',
         }),
         group: 'game',
         onboardingId: 'settings-tab-network-multiplayer',

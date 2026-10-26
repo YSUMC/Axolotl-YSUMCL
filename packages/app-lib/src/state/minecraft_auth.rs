@@ -39,6 +39,9 @@ pub use oidc::{
 mod yggdrasil;
 pub use yggdrasil::*;
 
+#[cfg(test)]
+mod refresh_tests;
+
 #[derive(Debug, Clone, Copy)]
 pub enum MinecraftAuthStep {
     GetDeviceToken,
@@ -460,6 +463,7 @@ struct RefreshedTokens {
     refresh_token: String,
     expires: DateTime<Utc>,
     yggdrasil: Option<YggdrasilAccount>,
+    profile: MinecraftProfile,
 }
 #[derive(Default)]
 struct CredentialRefreshState {
@@ -535,6 +539,32 @@ impl Credentials {
         self.account_type == MinecraftAccountType::Yggdrasil
     }
 
+    fn uses_ysumc_oidc(&self) -> bool {
+        self.is_yggdrasil()
+            && self.yggdrasil.as_ref().is_some_and(|account| {
+                crate::ysumc::is_yggdrasil_api_root(&account.api_root)
+                    && (!self.refresh_token.is_empty()
+                        || account.client_token.is_empty())
+            })
+    }
+
+    fn needs_refresh(&self) -> bool {
+        let margin = if self.is_yggdrasil() && !self.uses_ysumc_oidc() {
+            Duration::zero()
+        } else {
+            Duration::minutes(5)
+        };
+        !self.is_offline() && self.expires <= Utc::now() + margin
+    }
+
+    fn refresh_identity(&self) -> &str {
+        if self.refresh_token.is_empty() {
+            &self.access_token
+        } else {
+            &self.refresh_token
+        }
+    }
+
     fn from_stored(stored: StoredCredentials) -> Self {
         let account_type =
             MinecraftAccountType::from_database(&stored.account_type);
@@ -573,17 +603,18 @@ impl Credentials {
         &mut self,
         exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite> + Copy,
     ) -> crate::Result<()> {
-        if self.is_offline() {
+        self.refresh_inner(exec, false).await
+    }
+
+    pub(crate) async fn refresh_inner(
+        &mut self,
+        exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite> + Copy,
+        rejected_by_server: bool,
+    ) -> crate::Result<()> {
+        if !rejected_by_server && !self.needs_refresh() {
             return Ok(());
         }
-        let refresh_margin = if self.is_yggdrasil() {
-            Duration::zero()
-        } else {
-            Duration::minutes(5)
-        };
-        if self.expires > Utc::now() + refresh_margin {
-            return Ok(());
-        }
+        let previous_access = self.access_token.clone();
         if CREDENTIAL_REFRESHES.len() > 64 {
             CREDENTIAL_REFRESHES
                 .retain(|_, state| Arc::strong_count(state) > 1);
@@ -594,24 +625,32 @@ impl Credentials {
         if state
             .source_token
             .as_ref()
-            .is_some_and(|token| token != &self.refresh_token)
-            && state
-                .refreshed
-                .as_ref()
-                .is_none_or(|cached| cached.refresh_token != self.refresh_token)
+            .is_some_and(|token| token != self.refresh_identity())
+            && state.refreshed.as_ref().is_none_or(|cached| {
+                let identity = if cached.refresh_token.is_empty() {
+                    &cached.access_token
+                } else {
+                    &cached.refresh_token
+                };
+                identity != self.refresh_identity()
+            })
         {
             *state = CredentialRefreshState::default();
         }
         if let Some(refreshed) = &state.refreshed
-            && state.source_token.as_ref() == Some(&self.refresh_token)
-            && refreshed.expires > self.expires
+            && state.source_token.as_deref() == Some(self.refresh_identity())
+            && (refreshed.access_token != self.access_token
+                || refreshed.expires > self.expires)
         {
             self.access_token = refreshed.access_token.clone();
             self.refresh_token = refreshed.refresh_token.clone();
             self.expires = refreshed.expires;
             self.yggdrasil = refreshed.yggdrasil.clone();
+            self.offline_profile = refreshed.profile.clone();
         }
-        if self.expires > Utc::now() + refresh_margin {
+        if (!rejected_by_server || self.access_token != previous_access)
+            && !self.needs_refresh()
+        {
             return Ok(());
         }
         if let Some((failed_at, error)) = &state.failure
@@ -619,7 +658,10 @@ impl Credentials {
         {
             return Err(crate::Error::from_shared_kind(Arc::clone(error)));
         }
-        state.source_token = Some(self.refresh_token.clone());
+        state.source_token = Some(self.refresh_identity().to_string());
+        if rejected_by_server {
+            self.expires = Utc::now();
+        }
         let result = self.refresh_tokens(exec).await;
         if result.is_ok() {
             // Keep only a short-lived refresh result for concurrent readers.
@@ -628,6 +670,7 @@ impl Credentials {
                 refresh_token: self.refresh_token.clone(),
                 expires: self.expires,
                 yggdrasil: self.yggdrasil.clone(),
+                profile: self.offline_profile.clone(),
             });
             state.failure = None;
         } else {
@@ -874,6 +917,33 @@ impl Credentials {
         )
     }
 
+    /// Checks Yggdrasil credentials against the server before handing them to
+    /// Minecraft. A cached expiry cannot detect revocation or a renamed player.
+    pub async fn get_credential_for_launch(
+        exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite> + Copy,
+    ) -> crate::Result<Option<Credentials>> {
+        let Some(mut credentials) =
+            Self::get_active_without_refresh(exec).await?
+        else {
+            return Ok(None);
+        };
+        if !credentials.is_yggdrasil() {
+            return Self::get_default_credential(exec).await;
+        }
+        // Unlike optional offline reads, an authenticated launch must not reuse
+        // an expired token when renewal fails because of a network error.
+        credentials.refresh(exec).await?;
+        if !yggdrasil::validate_credentials(&credentials).await? {
+            credentials.refresh_inner(exec, true).await?;
+            if !yggdrasil::validate_credentials(&credentials).await? {
+                return Err(ErrorKind::CredentialsExpired {
+                    detail: "The renewed game session was rejected; authorize the launcher again.".into(),
+                }.as_error());
+            }
+        }
+        Ok(Some(credentials))
+    }
+
     /// Like [`get_active`](Self::get_active), but enforces credentials to be
     /// successfully refreshed unless the network is unreachable or times out.
     #[tracing::instrument]
@@ -1015,6 +1085,32 @@ impl Credentials {
             .min_by(|left, right| {
                 left.offline_profile.name.cmp(&right.offline_profile.name)
             }))
+    }
+
+    // Token rotation must reach disk before optional profile requests. Updating
+    // an existing row also preserves the account the user currently selected.
+    async fn persist_refreshed(
+        &self,
+        exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite>,
+    ) -> crate::Result<()> {
+        let updated = sqlx::query(
+            "UPDATE minecraft_users SET access_token = $1, refresh_token = $2,
+                expires = $3, uuid = $4, username = $5, yggdrasil_client_token = $6
+             WHERE account_id = $7",
+        )
+        .bind(&self.access_token)
+        .bind(&self.refresh_token)
+        .bind(self.expires.timestamp())
+        .bind(self.offline_profile.id.to_string())
+        .bind(&self.offline_profile.name)
+        .bind(self.yggdrasil.as_ref().map_or("", |account| account.client_token.as_str()))
+        .bind(self.account_id())
+        .execute(exec)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(ErrorKind::NoCredentialsError.as_error());
+        }
+        Ok(())
     }
 
     pub async fn upsert(
@@ -2061,6 +2157,7 @@ mod refresh_coalescing_tests {
                     refresh_token: "fresh-refresh".into(),
                     expires: Utc::now() + Duration::hours(1),
                     yggdrasil: None,
+                    profile: first.offline_profile.clone(),
                 }),
             })),
         );

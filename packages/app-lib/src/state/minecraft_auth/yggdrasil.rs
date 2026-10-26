@@ -335,17 +335,18 @@ pub async fn refresh_yggdrasil_credentials(
     credentials: &mut Credentials,
     exec: impl sqlx::Executor<'_, Database = Sqlite> + Copy,
 ) -> crate::Result<()> {
-    if credentials.expires > Utc::now() {
+    if !credentials.needs_refresh() {
         return Ok(());
     }
 
     // A session opened through the account site belongs to its OpenID provider:
-    // the classic auth server does not know those tokens, so renew it there.
-    if !credentials.refresh_token.is_empty()
-        && credentials.yggdrasil.as_ref().is_some_and(|account| {
-            crate::ysumc::is_yggdrasil_api_root(&account.api_root)
-        })
-    {
+    // authserver/refresh cannot renew those tokens, so renew it there.
+    if credentials.uses_ysumc_oidc() {
+        if credentials.refresh_token.is_empty() {
+            return Err(ErrorKind::CredentialsExpired {
+                detail: "The account site did not issue a refresh token; authorize the launcher again.".into(),
+            }.as_error());
+        }
         return super::oidc::refresh_credentials_with_oidc(credentials, exec)
             .await;
     }
@@ -357,42 +358,22 @@ pub async fn refresh_yggdrasil_credentials(
         )
         .as_error()
     })?;
-    let validate_url = endpoint(&account.api_root, "validate")?;
-    let response = INSECURE_REQWEST_CLIENT
-        .post(validate_url)
-        .json(&json!({
+    if validate_credentials(credentials).await? {
+        credentials.expires = Utc::now() + Duration::minutes(5);
+        credentials.persist_refreshed(exec).await?;
+        return Ok(());
+    }
+
+    // selectedProfile is only for binding an unbound login token. Including it
+    // when renewing an already bound token is rejected by conforming servers.
+    let refreshed: RefreshResponse = post_json(
+        &account.api_root,
+        "refresh",
+        json!({
             "accessToken": credentials.access_token,
             "clientToken": account.client_token,
-        }))
-        .send()
-        .await?;
-
-    if response.status().is_success() {
-        credentials.expires = Utc::now() + Duration::minutes(5);
-        credentials.upsert(exec).await?;
-        return Ok(());
-    }
-    if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        tracing::warn!(
-            "Yggdrasil token validation for {} was rate limited",
-            account.server_name
-        );
-        credentials.expires = Utc::now() + Duration::minutes(1);
-        credentials.upsert(exec).await?;
-        return Ok(());
-    }
-    if response.status().as_u16() != 403 && response.status().as_u16() != 401 {
-        return Err(response_error(response).await);
-    }
-
-    let refreshed = refresh_selected_profile(
-        &account.api_root,
-        &credentials.access_token,
-        &account.client_token,
-        &YggdrasilProfile {
-            id: credentials.offline_profile.id,
-            name: credentials.offline_profile.name.clone(),
-        },
+            "requestUser": true,
+        }),
     )
     .await?;
 
@@ -410,8 +391,35 @@ pub async fn refresh_yggdrasil_credentials(
         account.client_token = refreshed.client_token;
     }
     credentials.expires = Utc::now() + Duration::minutes(5);
-    credentials.upsert(exec).await?;
+    credentials.persist_refreshed(exec).await?;
     Ok(())
+}
+
+pub(super) async fn validate_credentials(
+    credentials: &Credentials,
+) -> crate::Result<bool> {
+    if credentials.uses_ysumc_oidc() {
+        return super::oidc::validate_credentials(credentials).await;
+    }
+    let account = credentials.yggdrasil.as_ref().ok_or_else(|| {
+        ErrorKind::OtherError("Missing Yggdrasil provider information".into())
+            .as_error()
+    })?;
+    let mut body = json!({"accessToken": credentials.access_token});
+    if !account.client_token.is_empty() {
+        body["clientToken"] = json!(account.client_token);
+    }
+    let response = INSECURE_REQWEST_CLIENT
+        .post(endpoint(&account.api_root, "validate")?)
+        .json(&body)
+        .timeout(StdDuration::from_secs(30))
+        .send()
+        .await?;
+    match response.status().as_u16() {
+        204 => Ok(true),
+        401 | 403 => Ok(false),
+        _ => Err(response_error(response).await),
+    }
 }
 
 pub async fn fetch_yggdrasil_profile(
@@ -652,6 +660,13 @@ async fn post_json<T: for<'de> Deserialize<'de>>(
         .send()
         .await?;
     if !response.status().is_success() {
+        if action == "refresh"
+            && matches!(response.status().as_u16(), 401 | 403)
+        {
+            return Err(ErrorKind::CredentialsExpired {
+                detail: "The Yggdrasil service refused to renew this token; sign in again.".into(),
+            }.as_error());
+        }
         return Err(response_error(response).await);
     }
     Ok(response.json().await?)

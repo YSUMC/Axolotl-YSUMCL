@@ -60,17 +60,76 @@ async fn retained_in_channel(
             "Finish pending installations and recovery before clearing downloaded caches.",
         ));
     }
+    let mut retained = retained_managed_packs(pool).await?;
     let store_tables: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('store_blobs', 'store_instance_files', 'store_retained_refs', 'store_operations')").fetch_one(pool).await?;
     if store_tables == 0 {
-        return Ok(Vec::new());
+        return Ok(retained);
     }
     if store_tables != 4 {
         return Err(invalid(
             "Content store records are incomplete. Cache cleanup was not started.",
         ));
     }
-    Ok(sqlx::query_scalar::<_, String>("SELECT digest FROM store_instance_files UNION SELECT digest FROM store_retained_refs UNION SELECT digest FROM store_operations WHERE state IN ('staged', 'published')")
-        .fetch_all(pool).await?.into_iter().map(|digest| digest.to_ascii_lowercase()).collect())
+    retained.extend(sqlx::query_scalar::<_, String>("SELECT digest FROM store_instance_files UNION SELECT digest FROM store_retained_refs UNION SELECT digest FROM store_operations WHERE state IN ('staged', 'published')")
+        .fetch_all(pool).await?.into_iter().map(|digest| digest.to_ascii_lowercase()));
+    Ok(retained)
+}
+
+async fn retained_managed_packs(
+    pool: &sqlx::SqlitePool,
+) -> crate::Result<Vec<String>> {
+    let tables: Vec<String> = sqlx::query_scalar("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('managed_instances', 'managed_installations')")
+        .fetch_all(pool).await?;
+    let installed = tables.iter().any(|name| name == "managed_installations");
+    let mut retained = Vec::new();
+    if installed {
+        let specs: Vec<String> = sqlx::query_scalar("SELECT m.spec_json FROM managed_installations m JOIN instances i ON i.id = m.instance_id")
+            .fetch_all(pool).await?;
+        for spec in specs {
+            let spec: serde_json::Value = serde_json::from_str(&spec)?;
+            if spec
+                .pointer("/pack/kind")
+                .and_then(serde_json::Value::as_str)
+                == Some("server")
+            {
+                // Server-only entries have no remote pack to preserve for launch.
+                continue;
+            }
+            match spec
+                .pointer("/pack/sha512")
+                .filter(|value| !value.is_null())
+                .or_else(|| spec.pointer("/pack/sha1"))
+                .and_then(serde_json::Value::as_str)
+            {
+                Some(hash)
+                    if matches!(hash.len(), 40 | 128)
+                        && hash
+                            .bytes()
+                            .all(|byte| byte.is_ascii_hexdigit()) =>
+                {
+                    retained.push(format!(
+                        "ysumc-pack:{}",
+                        hash.to_ascii_lowercase()
+                    ));
+                }
+                _ => retained.push("ysumc-pack:*".into()),
+            }
+        }
+    }
+    if tables.iter().any(|name| name == "managed_instances") {
+        // Legacy installations have no immutable pack specification yet. Keep
+        // their archives until their first verified launch records one.
+        let query = if installed {
+            "SELECT COUNT(*) FROM managed_instances m JOIN instances i ON i.id = m.instance_id LEFT JOIN managed_installations s ON s.instance_id = m.instance_id WHERE s.instance_id IS NULL"
+        } else {
+            "SELECT COUNT(*) FROM managed_instances m JOIN instances i ON i.id = m.instance_id"
+        };
+        let legacy: i64 = sqlx::query_scalar(query).fetch_one(pool).await?;
+        if legacy > 0 {
+            retained.push("ysumc-pack:*".into());
+        }
+    }
+    Ok(retained)
 }
 
 /// Only known download folders are disposable. Icons and native archives can be
@@ -86,8 +145,51 @@ fn disposable(path: &str, retained: &HashSet<String>) -> bool {
                 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
                 && !retained.contains(&digest.to_ascii_lowercase())
         }),
+        "ysumc-packs" => parts.next().is_some_and(|file| {
+            parts.next().is_none()
+                && file.strip_suffix(".mrpack").is_some_and(|hash| {
+                    matches!(hash.len(), 40 | 128)
+                        && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        && !retained.contains("ysumc-pack:*")
+                        && !retained.contains(&format!(
+                            "ysumc-pack:{}",
+                            hash.to_ascii_lowercase()
+                        ))
+                })
+        }),
         _ => false,
     }
+}
+
+/// Remove only unreferenced official pack archives after an uninstall. Installed
+/// packs retain their archives for offline integrity checks across both channels.
+pub(crate) async fn cleanup_uninstalled_packs(
+    directories: &DirectoryInfo,
+) -> crate::Result<()> {
+    let _scan = SCAN_LOCK.lock().await;
+    let _usage = usage::exclusive().await?;
+    let retained = retained_content(directories).await?;
+    let root = match cache_root(directories)
+        .and_then(|root| root.open_dir_nofollow("ysumc-packs"))
+    {
+        Ok(root) => root,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    tokio::task::spawn_blocking(move || {
+        let _usage = _usage;
+        let mut failures = Vec::new();
+        walk(&root, "ysumc-packs", Some(&retained), &mut failures)?;
+        if !failures.is_empty() {
+            return Err(std::io::Error::other(failures.join("; ")));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(std::io::Error::other)??;
+    Ok(())
 }
 
 fn cache_root(directories: &DirectoryInfo) -> std::io::Result<Dir> {

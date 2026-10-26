@@ -350,11 +350,10 @@ fn default_update_channel_for(version: &str) -> &'static str {
 /// Default update channel of the current build, used whenever the user has
 /// not explicitly chosen an update channel.
 ///
-/// Derived at compile time from this crate's version (`CARGO_PKG_VERSION`),
-/// which the release workflow keeps in sync with the app version. Untagged
-/// development builds therefore inherit the channel of the most recent tag.
+/// Uses the shell's package version so a branded Beta can share the same
+/// compiled core as a stable build. Library-only callers use the crate version.
 pub fn default_update_channel() -> &'static str {
-    default_update_channel_for(env!("CARGO_PKG_VERSION"))
+    default_update_channel_for(crate::branding::app_version())
 }
 
 /// When the user has not explicitly chosen an update channel, keeps an

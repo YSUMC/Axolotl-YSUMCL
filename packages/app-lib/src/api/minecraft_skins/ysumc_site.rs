@@ -9,7 +9,7 @@
 //!
 //! Endpoints (see `docs/launcher-protocol.md` §7):
 //! - `GET  {site}/api/launcher/skins?player=<name>`
-//! - `POST {site}/api/launcher/skins?player=<name>&type=<steve|alex>&name=<label>`
+//! - `POST {site}/api/launcher/skins?player=<name>&type=<steve|alex|cape>&name=<label>`
 //!   with the PNG as the request body
 //! - `PUT  {site}/api/launcher/skins/equip` with `{player, skin?, cape?}`
 //! - `DELETE {site}/api/launcher/skins` with `{player, tid}`
@@ -410,13 +410,51 @@ pub async fn upload_skin(
     variant: MinecraftSkinVariant,
     name: &str,
 ) -> crate::Result<UploadedSkin> {
-    let token = access_token(credentials)?.to_string();
     let texture_type = match variant {
         MinecraftSkinVariant::Slim => "alex",
         MinecraftSkinVariant::Classic | MinecraftSkinVariant::Unknown => {
             "steve"
         }
     };
+    let texture =
+        upload_texture(credentials, texture_blob, texture_type, name).await?;
+    Ok(UploadedSkin {
+        tid: texture.tid,
+        name: texture.name.clone(),
+        texture: texture.texture_url(),
+        variant: texture.variant(),
+    })
+}
+
+pub async fn upload_cape(
+    credentials: &Credentials,
+    texture_blob: &Bytes,
+    name: &str,
+) -> crate::Result<Cape> {
+    let texture =
+        upload_texture(credentials, texture_blob, "cape", name).await?;
+    if !texture.is_cape() {
+        return Err(ErrorKind::InputError(
+            "This image already exists as a skin. Choose a cape texture."
+                .into(),
+        )
+        .into());
+    }
+    texture.into_cape(false).ok_or_else(|| {
+        ErrorKind::OtherError(
+            "The skin site did not return a usable cape URL".into(),
+        )
+        .into()
+    })
+}
+
+async fn upload_texture(
+    credentials: &Credentials,
+    texture_blob: &Bytes,
+    texture_type: &str,
+    name: &str,
+) -> crate::Result<SiteTextureView> {
+    let token = access_token(credentials)?;
     let response = bounded(
         INSECURE_REQWEST_CLIENT
             .post(endpoint("/api/launcher/skins"))
@@ -444,12 +482,7 @@ pub async fn upload_skin(
     // a new texture belongs in the next listing
     invalidate_skins();
 
-    Ok(UploadedSkin {
-        tid: body.texture.tid,
-        name: body.texture.name.clone(),
-        texture: body.texture.texture_url(),
-        variant: body.texture.variant(),
-    })
+    Ok(body.texture)
 }
 
 /// Takes a texture out of the character's closet on the site, unequipping it there

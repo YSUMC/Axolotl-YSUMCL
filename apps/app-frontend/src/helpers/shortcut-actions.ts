@@ -245,15 +245,6 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
         target: () => '/skins',
     },
     {
-        id: 'shortcutNavMultiplayer',
-        group: 'nav',
-        enabledField: 'shortcutNavMultiplayer',
-        defaultBinding: keyboard('Digit5', true),
-        label: messages.navMultiplayer,
-        description: messages.navMultiplayerDescription,
-        target: () => '/multiplayer',
-    },
-    {
         id: 'shortcutNavLibrary',
         group: 'nav',
         enabledField: 'shortcutNavLibrary',

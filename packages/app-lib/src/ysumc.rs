@@ -12,6 +12,17 @@ pub const SITE_URL: &str = "https://skin.ysumc.net";
 /// Public catalog of official packs.
 pub const MANIFEST_URL: &str = "https://skin.ysumc.net/api/launcher/manifest";
 
+/// Published home-site catalog. Friend instances are read separately.
+pub const INTEROP_URL: &str =
+    "https://skin.ysumc.net/.well-known/mc-interop-v1.json";
+
+/// Direct friends aggregated by the home server; never crawl peers on the client.
+pub const FRIENDS_URL: &str = "https://skin.ysumc.net/api/launcher/friends";
+
+/// Authenticated proxy to the official CurseForge API; its key stays on the server.
+pub const CURSEFORGE_PROXY_URL: &str =
+    "https://skin.ysumc.net/api/launcher/curseforge";
+
 /// Where a player creates the account the launcher accepts.
 pub const REGISTER_URL: &str = "https://skin.ysumc.net/auth/register";
 

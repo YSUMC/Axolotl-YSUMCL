@@ -15,12 +15,46 @@ pub const INSTANCES_FOLDER_NAME: &str = "profiles";
 pub const SERVERS_FOLDER_NAME: &str = "servers";
 pub const INSTALL_ROLLBACKS_FOLDER_NAME: &str = "install-rollbacks";
 pub const METADATA_FOLDER_NAME: &str = "meta";
+const GAME_DATA_FOLDERS: &[&str] = &[
+    CACHES_FOLDER_NAME,
+    INSTANCES_FOLDER_NAME,
+    METADATA_FOLDER_NAME,
+    "icons",
+    "synced-options",
+    SERVERS_FOLDER_NAME,
+    INSTALL_ROLLBACKS_FOLDER_NAME,
+];
 
 #[derive(Debug)]
 pub struct DirectoryInfo {
     pub settings_dir: PathBuf, // Base settings directory- app database
     pub config_dir: PathBuf, // Base config directory- instances, minecraft downloads, etc. Changeable as a setting.
     pub app_identifier: String,
+}
+
+fn uses_legacy_default(
+    custom: Option<&str>,
+    previous: Option<&str>,
+    legacy: &Path,
+) -> bool {
+    let matches = |path: &str| {
+        #[cfg(target_os = "windows")]
+        {
+            path.replace('/', "\\")
+                .trim_end_matches('\\')
+                .eq_ignore_ascii_case(
+                    legacy
+                        .to_string_lossy()
+                        .replace('/', "\\")
+                        .trim_end_matches('\\'),
+                )
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Path::new(path) == legacy
+        }
+    };
+    custom.is_none_or(matches) && previous.is_none_or(matches)
 }
 
 impl DirectoryInfo {
@@ -47,6 +81,78 @@ impl DirectoryInfo {
         })
     }
 
+    /// Large game resources follow the Windows executable; test/portable data
+    /// overrides still isolate both the database and the resources.
+    pub fn default_game_dir_path(app_identifier: &str) -> Option<PathBuf> {
+        if Self::env_path("THESEUS_CONFIG_DIR").is_some()
+            || crate::brand::app_data_dir_identifier(app_identifier)
+                != app_identifier
+        {
+            return Self::initial_settings_dir_path(app_identifier);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            Some(std::env::current_exe().ok()?.parent()?.join("data"))
+        }
+        #[cfg(not(target_os = "windows"))]
+        Self::initial_settings_dir_path(app_identifier)
+    }
+
+    pub async fn prepare_default_game_directory(
+        settings: &mut Settings,
+        pool: &sqlx::SqlitePool,
+        app_identifier: &str,
+    ) -> crate::Result<()> {
+        let legacy = Self::initial_settings_dir_path(app_identifier)
+            .ok_or_else(|| {
+                crate::ErrorKind::FSError("Missing settings directory".into())
+            })?;
+        let target =
+            Self::default_game_dir_path(app_identifier).ok_or_else(|| {
+                crate::ErrorKind::FSError(
+                    "Missing installation directory".into(),
+                )
+            })?;
+        Self::prepare_game_directory_at(settings, pool, &legacy, &target).await
+    }
+
+    async fn prepare_game_directory_at(
+        settings: &mut Settings,
+        pool: &sqlx::SqlitePool,
+        legacy: &Path,
+        target: &Path,
+    ) -> crate::Result<()> {
+        if legacy == target
+            || !uses_legacy_default(
+                settings.custom_dir.as_deref(),
+                settings.prev_custom_dir.as_deref(),
+                legacy,
+            )
+        {
+            return Ok(());
+        }
+        // Do not merge another installation's worlds into this account database.
+        for name in GAME_DATA_FOLDERS.iter().copied().chain(["Backups"]) {
+            let path = target.join(name);
+            if path.exists()
+                && (!path.is_dir()
+                    || fs::read_dir(&path).await?.next_entry().await?.is_some())
+            {
+                return Err(crate::ErrorKind::DirectoryMoveError(format!(
+                    "Game data already exists at {}. Choose an empty game directory before migrating {}.",
+                    target.display(), legacy.display()
+                )).into());
+            }
+        }
+        crate::util::io::create_dir_all(target).await?;
+        settings.prev_custom_dir = Some(legacy.to_string_lossy().into_owned());
+        settings.custom_dir = Some(target.to_string_lossy().into_owned());
+        // Persist the source before moving, so an interrupted move resumes from
+        // the old location instead of losing track of the existing instances.
+        settings.update(pool).await?;
+        Ok(())
+    }
+
     /// Get all paths needed for Theseus to operate properly
     #[tracing::instrument]
     pub async fn init(
@@ -64,8 +170,13 @@ impl DirectoryInfo {
             ))
         })?;
 
-        let config_dir =
-            config_dir.map_or_else(|| settings_dir.clone(), PathBuf::from);
+        let config_dir = config_dir
+            .map(PathBuf::from)
+            .or_else(|| Self::default_game_dir_path(app_identifier))
+            .ok_or_else(|| {
+                crate::ErrorKind::FSError("Missing game directory".into())
+            })?;
+        crate::util::io::create_dir_all(&config_dir).await?;
 
         Ok(Self {
             settings_dir,
@@ -328,7 +439,7 @@ impl DirectoryInfo {
             + sqlx::Acquire<'a, Database = sqlx::Sqlite>
             + Copy,
     {
-        let app_dir = DirectoryInfo::initial_settings_dir_path(app_identifier)
+        let app_dir = DirectoryInfo::default_game_dir_path(app_identifier)
             .ok_or(crate::ErrorKind::FSError(
                 "Could not find valid config dir".to_string(),
             ))?;
@@ -344,9 +455,19 @@ impl DirectoryInfo {
             async fn is_dir_writable(
                 new_config_dir: &Path,
             ) -> crate::Result<bool> {
-                let temp_path = new_config_dir.join(".tmp");
-                match fs::write(temp_path.clone(), "test").await {
-                    Ok(_) => {
+                crate::util::io::create_dir_all(new_config_dir).await?;
+                let temp_path = new_config_dir.join(format!(
+                    ".ysumc-write-test-{}",
+                    uuid::Uuid::new_v4()
+                ));
+                match fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&temp_path)
+                    .await
+                {
+                    Ok(file) => {
+                        drop(file);
                         fs::remove_file(temp_path).await?;
                         Ok(true)
                     }
@@ -413,12 +534,6 @@ impl DirectoryInfo {
                     }
                 }
 
-                const MOVE_DIRS: &[&str] = &[
-                    CACHES_FOLDER_NAME,
-                    INSTANCES_FOLDER_NAME,
-                    METADATA_FOLDER_NAME,
-                ];
-
                 struct MovePath {
                     old: PathBuf,
                     new: PathBuf,
@@ -463,7 +578,7 @@ impl DirectoryInfo {
                 let mut paths: Vec<MovePath> = vec![];
                 let mut total_size = 0;
 
-                for dir in MOVE_DIRS {
+                for dir in GAME_DATA_FOLDERS {
                     add_paths(
                         &prev_dir.join(dir),
                         &move_dir.join(dir),
@@ -473,7 +588,7 @@ impl DirectoryInfo {
                     .await?;
                     emit_loading(
                         &loader_bar_id,
-                        10.0 / (MOVE_DIRS.len() as f64),
+                        10.0 / (GAME_DATA_FOLDERS.len() as f64),
                         None,
                     )?;
                 }
@@ -716,6 +831,159 @@ impl DirectoryInfo {
 mod resolve_game_dir_tests {
     use super::DirectoryInfo;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    #[cfg(not(feature = "tauri"))]
+    async fn game_directory_upgrade_moves_existing_data_and_persists_destination()
+     {
+        crate::EventState::init().await.unwrap();
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join("old-default");
+        let target = temp.path().join("installation").join("data");
+        let fixtures = [
+            "profiles/survival/saves/world/level.dat",
+            "profiles/survival/mods/mod.jar",
+            "meta/versions/1.21.1/1.21.1.jar",
+            "meta/assets/objects/aa/asset",
+            "icons/server.png",
+            "synced-options/options.txt",
+            "caches/download.tmp",
+        ];
+        for (i, file) in fixtures.iter().enumerate() {
+            let path = legacy.join(file);
+            tokio::fs::create_dir_all(path.parent().unwrap())
+                .await
+                .unwrap();
+            tokio::fs::write(&path, format!("saved-content-{i}"))
+                .await
+                .unwrap();
+        }
+        let mut settings = crate::state::Settings::get(&pool).await.unwrap();
+        settings.custom_dir = Some(legacy.to_string_lossy().into_owned());
+        settings.prev_custom_dir.clone_from(&settings.custom_dir);
+        DirectoryInfo::prepare_game_directory_at(
+            &mut settings,
+            &pool,
+            &legacy,
+            &target,
+        )
+        .await
+        .unwrap();
+        let staged = crate::state::Settings::get(&pool).await.unwrap();
+        assert_eq!(staged.prev_custom_dir.as_deref(), legacy.to_str());
+        assert_eq!(staged.custom_dir.as_deref(), target.to_str());
+        DirectoryInfo::move_launcher_directory(
+            &mut settings,
+            &pool,
+            &crate::util::fetch::IoSemaphore(tokio::sync::Semaphore::new(2)),
+            "isolated-migration-test",
+        )
+        .await
+        .unwrap();
+        for (i, file) in fixtures.iter().enumerate() {
+            assert_eq!(
+                tokio::fs::read_to_string(target.join(file)).await.unwrap(),
+                format!("saved-content-{i}")
+            );
+            assert!(!legacy.join(file).exists());
+        }
+        let saved = crate::state::Settings::get(&pool).await.unwrap();
+        assert_eq!(saved.custom_dir.as_deref(), target.to_str());
+        assert_eq!(saved.prev_custom_dir, saved.custom_dir);
+        // A subsequent startup must leave the chosen directory untouched.
+        DirectoryInfo::prepare_game_directory_at(
+            &mut settings,
+            &pool,
+            &legacy,
+            &target,
+        )
+        .await
+        .unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn game_directory_upgrade_refuses_to_merge_existing_worlds() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join("old-default");
+        let target = temp.path().join("installation/data");
+        tokio::fs::create_dir_all(target.join("profiles"))
+            .await
+            .unwrap();
+        tokio::fs::write(target.join("profiles/existing-world"), "keep me")
+            .await
+            .unwrap();
+        let mut settings = crate::state::Settings::get(&pool).await.unwrap();
+        assert!(
+            DirectoryInfo::prepare_game_directory_at(
+                &mut settings,
+                &pool,
+                &legacy,
+                &target
+            )
+            .await
+            .is_err()
+        );
+        assert!(settings.custom_dir.is_none());
+        assert_eq!(
+            tokio::fs::read_to_string(target.join("profiles/existing-world"))
+                .await
+                .unwrap(),
+            "keep me"
+        );
+        pool.close().await;
+    }
+
+    #[test]
+    fn game_directory_upgrade_preserves_custom_and_pending_moves() {
+        let legacy =
+            PathBuf::from(r"C:\Users\Test\AppData\Roaming\net.ysumc.launcher");
+        let old = legacy.to_str().unwrap();
+        assert!(super::uses_legacy_default(None, None, &legacy));
+        assert!(super::uses_legacy_default(Some(old), Some(old), &legacy));
+        assert!(!super::uses_legacy_default(
+            Some(r"D:\Games"),
+            Some(r"D:\Games"),
+            &legacy
+        ));
+        assert!(!super::uses_legacy_default(
+            Some(r"D:\Games"),
+            Some(old),
+            &legacy
+        ));
+        assert!(!super::uses_legacy_default(
+            Some(old),
+            Some(r"D:\Games"),
+            &legacy
+        ));
+        assert!(!super::uses_legacy_default(
+            None,
+            Some(r"D:\Games"),
+            &legacy
+        ));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn game_directory_upgrade_recognizes_windows_path_spelling() {
+        assert!(super::uses_legacy_default(
+            Some("c:/Users/Test/AppData/"),
+            None,
+            &PathBuf::from(r"C:\Users\Test\AppData")
+        ));
+    }
 
     fn dirs() -> DirectoryInfo {
         DirectoryInfo {

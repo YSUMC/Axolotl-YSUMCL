@@ -25,6 +25,7 @@ export interface ManagedPackSpec {
     kind: string
     url: string
     sha1: string | null
+    sha512?: string | null
     size: number | null
 }
 
@@ -35,6 +36,13 @@ export interface ManagedServerSpec {
 }
 
 export interface ManagedInstanceSpec {
+    source?: {
+        siteId: string
+        domain: string
+        name?: string
+        description?: string
+        stale: boolean
+    } | null
     id: string
     name: string
     description: string | null
@@ -48,6 +56,8 @@ export interface ManagedInstanceSpec {
 }
 
 export interface ManagedManifest {
+    site?: ManagedSite | null
+    diagnostics?: string[]
     cloud_map_url?: string | null
     schema: number
     generated_at: string | null
@@ -65,12 +75,21 @@ export interface ManagedInstanceAction {
 }
 
 export interface ManagedSyncReport {
+    site?: ManagedSite | null
+    diagnostics?: string[]
     cloud_map_url?: string | null
     schema: number
     offline: boolean
     synced_at: number
     launcher: ManagedLauncherPolicy | null
     instances: ManagedInstanceAction[]
+}
+
+export interface ManagedSite {
+    id: string
+    name: string
+    description: string
+    domain: string
 }
 
 export interface ManagedInstanceRecord {

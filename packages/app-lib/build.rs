@@ -27,7 +27,6 @@ fn main() {
     if PathBuf::from(".env").exists() {
         println!("cargo::rerun-if-changed=.env");
     }
-    println!("cargo::rerun-if-env-changed=CURSEFORGE_API_KEY");
     for (name, _) in MODRINTH_ENV_DEFAULTS {
         println!("cargo::rerun-if-env-changed={name}");
     }
@@ -49,10 +48,6 @@ fn main() {
 }
 
 fn set_env() {
-    let curseforge_api_key = env::var("CURSEFORGE_API_KEY")
-        .ok()
-        .or_else(|| read_dotenv_literal("CURSEFORGE_API_KEY"));
-
     let dotenv_values: Vec<(String, String)> = dotenvy::dotenv_iter()
         .into_iter()
         .flatten()
@@ -87,10 +82,6 @@ fn set_env() {
             .or_else(|| env::var(name).ok().filter(|value| !value.is_empty()))
             .unwrap_or_else(|| (*default).to_string());
         println!("cargo::rustc-env={name}={value}");
-    }
-
-    if let Some(curseforge_api_key) = curseforge_api_key {
-        println!("cargo::rustc-env=CURSEFORGE_API_KEY={curseforge_api_key}");
     }
 
     // Lets a local or test build keep its own data directory, so it cannot write

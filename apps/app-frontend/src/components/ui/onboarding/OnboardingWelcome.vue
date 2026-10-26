@@ -3,6 +3,7 @@ import { MonitorIcon, RightArrowIcon } from '@modrinth/assets'
 import { Button, defineMessages, LOCALES, useVIntl } from '@modrinth/ui'
 import { computed, onMounted, ref } from 'vue'
 
+import { isMutmc } from '@/branding'
 import AxolotlLogo from '@/components/ui/AxolotlLogo.vue'
 import { get, update } from '@/helpers/settings.ts'
 import i18n, {
@@ -140,19 +141,29 @@ async function toggleFollowSystem() {
                 </div>
                 <div
                     class="onboarding-welcome-wordmark"
-                    aria-label="燕山大学Minecraft学生同好者协会"
+                    :aria-label="isMutmc ? 'MC高校锦标赛' : '燕山大学Minecraft学生同好者协会'"
                 >
                     <span
                         class="onboarding-welcome-wordmark-core"
-                        data-wordmark="燕山大学Minecraft学生同好者协会"
+                        :data-wordmark="
+                            isMutmc ? 'MC高校锦标赛' : '燕山大学Minecraft学生同好者协会'
+                        "
                     >
-                        燕山大学Minecraft学生同好者协会
+                        {{ isMutmc ? 'MC高校锦标赛' : '燕山大学Minecraft学生同好者协会' }}
                     </span>
                     <span
                         class="onboarding-welcome-wordmark-suffix"
-                        data-wordmark="YanShan University Minecraft Club"
+                        :data-wordmark="
+                            isMutmc
+                                ? 'MC University Tournament'
+                                : 'YanShan University Minecraft Club'
+                        "
                     >
-                        YanShan University Minecraft Club
+                        {{
+                            isMutmc
+                                ? 'MC University Tournament'
+                                : 'YanShan University Minecraft Club'
+                        }}
                     </span>
                 </div>
             </div>

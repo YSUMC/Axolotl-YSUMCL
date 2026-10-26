@@ -84,9 +84,9 @@
         },
         "@modrinth/app-frontend#build": {
             "dependsOn": ["^build"],
-            "inputs": ["$TURBO_DEFAULT$", ".env*", "../../apps/app/tauri.conf.json"],
+            "inputs": ["$TURBO_DEFAULT$", ".env*", "../../apps/app/tauri.conf.json", "../../brands/catalog.json"],
             "outputs": ["dist/**"],
-            "env": ["NODE_ENV", "TAURI_ENV_*", "MODRINTH_*"]
+            "env": ["NODE_ENV", "TAURI_ENV_*", "MODRINTH_*", "VITE_LAUNCHER_BRAND"]
         },
         "lint": {
             "env": [

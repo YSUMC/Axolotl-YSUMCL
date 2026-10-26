@@ -27,6 +27,14 @@ use windows::{
 
 const DEFAULT_SHORTCUT_ICON: &[u8] = include_bytes!("../../../icons/icon.png");
 
+fn default_shortcut_icon() -> &'static [u8] {
+    if theseus::branding::active().id == "mutmc" {
+        include_bytes!("../../../icons/mutmc/icon.png")
+    } else {
+        DEFAULT_SHORTCUT_ICON
+    }
+}
+
 pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("shortcuts")
         .invoke_handler(tauri::generate_handler![create_instance_shortcut])
@@ -111,10 +119,10 @@ pub(crate) async fn sync_instance_shortcut_icon<R: Runtime>(
                     source_path.display(),
                     error
                 );
-                DEFAULT_SHORTCUT_ICON.to_vec()
+                default_shortcut_icon().to_vec()
             }
         },
-        None => DEFAULT_SHORTCUT_ICON.to_vec(),
+        None => default_shortcut_icon().to_vec(),
     };
 
     let encoded = tokio::task::spawn_blocking(move || {
@@ -123,7 +131,7 @@ pub(crate) async fn sync_instance_shortcut_icon<R: Runtime>(
                 "failed to encode instance shortcut icon: {}; using the launcher icon",
                 source_error
             );
-            encode_shortcut_icon(DEFAULT_SHORTCUT_ICON)
+            encode_shortcut_icon(default_shortcut_icon())
         })
     })
     .await
@@ -223,7 +231,8 @@ fn instance_launch_url(
     singleplayer_world: Option<String>,
 ) -> Url {
     let mut launch_url =
-        Url::parse("axolotl://launch").expect("static launch URL should parse");
+        Url::parse(&format!("{}://launch", theseus::branding::active().scheme))
+            .expect("bundled brand launch URL should parse");
 
     launch_url
         .query_pairs_mut()
@@ -263,7 +272,10 @@ fn desktop_shortcut_name(instance_name: &str) -> String {
         sanitized
     };
 
-    format!("{} - {instance_name}", theseus::brand::SHORT_PRODUCT_NAME)
+    format!(
+        "{} - {instance_name}",
+        theseus::branding::active().short_name
+    )
 }
 
 fn shortcut_path_with_extension(mut path: PathBuf) -> PathBuf {
@@ -314,7 +326,7 @@ mod tests {
 
         assert_eq!(
             url.as_str(),
-            "axolotl://launch?instance_id=instance+id%2F%E6%B5%8B%E8%AF%95&server=example.org%3A25565"
+            "ysumc://launch?instance_id=instance+id%2F%E6%B5%8B%E8%AF%95&server=example.org%3A25565"
         );
     }
 
@@ -322,9 +334,9 @@ mod tests {
     fn desktop_shortcut_name_is_safe_on_all_supported_platforms() {
         assert_eq!(
             desktop_shortcut_name("My: Instance?/ "),
-            "Axolotl - My_ Instance__"
+            "YSUMC - My_ Instance__"
         );
-        assert_eq!(desktop_shortcut_name(" ... "), "Axolotl - Instance");
+        assert_eq!(desktop_shortcut_name(" ... "), "YSUMC - Instance");
     }
 
     #[cfg(target_os = "windows")]

@@ -51,7 +51,7 @@ test('screenshots breadcrumb resolves through the active locale', () => {
 
     assert.equal(resolve(), 'Screenshots')
     locale = 'zh-CN'
-    assert.equal(resolve(), '截图中心')
+    assert.equal(resolve(), '截图')
 })
 
 test('upgrade route paths, internal names, and breadcrumb depth stay unchanged', () => {

@@ -3,7 +3,7 @@ import { loadSkinRendering } from '@modrinth/ui'
 import * as THREE from 'three'
 
 import type { Cape, Skin } from '../skins'
-import { determineModelType, get_normalized_skin_texture } from '../skins'
+import { determineModelType, get_normalized_skin_texture, getCapePreviewUrl } from '../skins'
 import { headStorage } from '../storage/head-storage'
 import { skinPreviewStorage } from '../storage/skin-preview-storage'
 import {
@@ -79,7 +79,7 @@ class BatchSkinRenderer {
 
         this.clearScene()
 
-        await this.setupModel(modelUrl, textureUrl, capeUrl)
+        const capeOmitted = await this.setupModel(modelUrl, textureUrl, capeUrl)
 
         const headPart = this.currentModel!.getObjectByName('Head')
         let lookAtTarget: [number, number, number]
@@ -95,7 +95,7 @@ class BatchSkinRenderer {
         const frontCameraPos: [number, number, number] = [-1.3, 1, 6.3]
         const forwards = await this.renderView(frontCameraPos, lookAtTarget)
 
-        return { forwards }
+        return { forwards, capeOmitted }
     }
 
     private async renderView(
@@ -130,14 +130,25 @@ class BatchSkinRenderer {
         modelUrl: string,
         textureUrl: string,
         capeUrl?: string,
-    ): Promise<void> {
+    ): Promise<boolean> {
         if (!this.scene) {
             throw new Error('Renderer not initialized')
         }
 
-        const { model } = await this.skinRendering.setupSkinModel(modelUrl, textureUrl, capeUrl)
+        let capeOmitted = false
+        const { model } = await this.skinRendering
+            .setupSkinModel(modelUrl, textureUrl, capeUrl)
+            .catch(async (error) => {
+                if (!capeUrl) throw error
+                // The skin remains usable when its optional cape is unavailable.
+                // Retry without the cape; a broken skin/model still fails normally.
+                const result = await this.skinRendering.setupSkinModel(modelUrl, textureUrl)
+                capeOmitted = true
+                console.warn('Cape preview unavailable; showing the skin without it', error)
+                return result
+            })
 
-        if (!capeUrl) {
+        if (!capeUrl || capeOmitted) {
             this.skinRendering.applyCapeTexture(model, null, this.getTransparentTexture())
         }
 
@@ -148,6 +159,7 @@ class BatchSkinRenderer {
 
         this.scene.add(group)
         this.currentModel = group
+        return capeOmitted
     }
 
     private getTransparentTexture(): THREE.Texture {
@@ -316,7 +328,7 @@ async function generateSkinPreviewsForGeneration(
                 const rawRenderResult = await renderer.renderSkin(
                     await get_normalized_skin_texture(skin),
                     modelUrl,
-                    cape?.texture,
+                    getCapePreviewUrl(cape?.texture),
                 )
 
                 if (!isCurrentGeneration()) return
@@ -328,7 +340,9 @@ async function generateSkinPreviewsForGeneration(
                 skinBlobUrlMap.set(key, renderResult)
 
                 try {
-                    await skinPreviewStorage.store(key, rawRenderResult)
+                    if (!rawRenderResult.capeOmitted) {
+                        await skinPreviewStorage.store(key, rawRenderResult)
+                    }
                 } catch (error) {
                     console.warn('Failed to store skin preview in persistent storage:', error)
                 }

@@ -1106,22 +1106,16 @@ pub struct CurseForgeFingerprintResult {
 }
 
 pub fn capability() -> CurseForgeCapability {
-    let key_available = api_key().is_some();
-    let mirror_available = State::get_if_initialized().is_some_and(|state| {
-        state.curseforge_source() != DownloadSourceMode::OfficialOnly
-    });
-    let configured = key_available || mirror_available;
-    let status = if mirror_available {
-        CurseForgeCapabilityStatus::Ready
-    } else if !configured {
-        CurseForgeCapabilityStatus::MissingKey
-    } else if UNAUTHORIZED.load(Ordering::Relaxed) {
+    let status = if UNAUTHORIZED.load(Ordering::Relaxed) {
         CurseForgeCapabilityStatus::Unauthorized
     } else {
         CurseForgeCapabilityStatus::Ready
     };
 
-    CurseForgeCapability { status, configured }
+    CurseForgeCapability {
+        status,
+        configured: true,
+    }
 }
 
 pub async fn validate_credentials() -> crate::Result<CurseForgeCapability> {
@@ -1172,7 +1166,13 @@ pub async fn search_projects(
             serde_json::to_string(&category_ids)?,
         ));
     }
-    push_query(&mut query, "searchFilter", request.search_filter);
+    push_query(
+        &mut query,
+        "searchFilter",
+        request
+            .search_filter
+            .filter(|value| !value.trim().is_empty()),
+    );
     push_query(&mut query, "gameVersion", request.game_version);
     push_query(&mut query, "modLoaderType", request.mod_loader_type);
     push_query(&mut query, "sortField", request.sort_field);
@@ -1443,10 +1443,6 @@ pub async fn get_download_url(
     if let Some(url) = normalized_download_url(response.data) {
         return Ok(Some(url));
     }
-    if api_key().is_none() {
-        return Ok(None);
-    }
-
     let response: CurseForgeResponse<Option<String>> = request_json(
         Method::GET,
         &path,
@@ -8724,6 +8720,9 @@ fn curseforge_candidate_urls(url: &str) -> crate::Result<Vec<String>> {
             continue;
         }
         let mut candidate = parsed.clone();
+        // ForgeCDN's file endpoint treats a literal '+' as a space. Preserve
+        // the filename when retrying another official CDN (e.g. Fabric API).
+        candidate.set_path(&parsed.path().replace('+', "%2B"));
         candidate.set_host(Some(host)).map_err(|_| {
             ErrorKind::InputError(
                 "CurseForge returned an invalid CDN URL".to_string(),
@@ -9866,7 +9865,6 @@ impl From<CurseForgeProject> for UnifiedSearchHit {
 pub(crate) fn api_key() -> Option<String> {
     std::env::var("AXOLOTL_CURSEFORGE_API_KEY")
         .ok()
-        .or_else(|| option_env!("CURSEFORGE_API_KEY").map(str::to_string))
         .map(|key| key.trim().to_string())
         .filter(|key| !key.is_empty())
 }
@@ -9912,7 +9910,7 @@ enum RequestRouteSource {
 
 struct RequestRoute {
     url: String,
-    use_api_key: bool,
+    use_launcher_token: bool,
     use_system_proxy: bool,
     source: RequestRouteSource,
 }
@@ -9937,7 +9935,8 @@ fn request_routes_with_mode(
     if base_url != API_BASE_URL {
         return vec![RequestRoute {
             url: format!("{base_url}{path}"),
-            use_api_key: true,
+            use_launcher_token: crate::branding::active().login_mode
+                != "microsoft",
             use_system_proxy: false,
             source: RequestRouteSource::Official,
         }];
@@ -9950,7 +9949,8 @@ fn request_routes_with_mode(
     )
     .into_iter()
     .map(|route| RequestRoute {
-        use_api_key: route.allow_sensitive_headers,
+        use_launcher_token: route.source == DownloadRouteSource::Official
+            && crate::branding::active().login_mode != "microsoft",
         use_system_proxy: route.proxy == ProxyPolicy::System,
         source: match route.source {
             DownloadRouteSource::Bmclapi
@@ -9960,7 +9960,11 @@ fn request_routes_with_mode(
                 RequestRouteSource::Official
             }
         },
-        url: route.url,
+        url: if route.source == DownloadRouteSource::Official {
+            format!("{}/curseforge{path}", crate::branding::active().api_base)
+        } else {
+            route.url
+        },
     })
     .collect()
 }
@@ -9972,8 +9976,20 @@ async fn request_json<T: DeserializeOwned>(
     body: Option<Value>,
     mirror_policy: MirrorPolicy,
 ) -> crate::Result<T> {
-    let key = api_key();
     let state = State::get().await?;
+    let account =
+        crate::state::Credentials::get_default_credential(&state.pool)
+            .await
+            .ok()
+            .flatten()
+            .filter(|account| {
+                account.yggdrasil.as_ref().is_some_and(|server| {
+                    crate::ysumc::is_yggdrasil_api_root(&server.api_root)
+                })
+            });
+    let token = account
+        .as_ref()
+        .map(|account| account.access_token.as_str());
     let mirror_safe = method == Method::GET
         || (method == Method::POST
             && matches!(
@@ -9990,9 +10006,35 @@ async fn request_json<T: DeserializeOwned>(
             state.curseforge_source()
         };
     let routes = request_routes_with_mode(path, source_mode);
+    request_json_with_routes(
+        method,
+        &query,
+        body.as_ref(),
+        &routes,
+        token,
+        &state.api_semaphore.0,
+        &UNAUTHORIZED,
+    )
+    .await
+}
+
+async fn request_json_with_routes<T: DeserializeOwned>(
+    method: Method,
+    query: &[(String, String)],
+    body: Option<&Value>,
+    routes: &[RequestRoute],
+    launcher_token: Option<&str>,
+    semaphore: &tokio::sync::Semaphore,
+    unauthorized: &AtomicBool,
+) -> crate::Result<T> {
     let mut last_error = None;
+    let mut official_requires_login = false;
 
     for (route_index, route) in routes.iter().enumerate() {
+        if route.use_launcher_token && launcher_token.is_none() {
+            official_requires_login = true;
+            continue;
+        }
         let started = Instant::now();
         tracing::info!(
             source = ?route.source,
@@ -10002,33 +10044,23 @@ async fn request_json<T: DeserializeOwned>(
             use_system_proxy = route.use_system_proxy,
             "Attempting CurseForge API request"
         );
-        let permit = state.api_semaphore.0.acquire().await?;
+        let permit = semaphore.acquire().await?;
         let mut request = request_client(&route.url, route.use_system_proxy)
             .request(method.clone(), &route.url)
+            .timeout(Duration::from_secs(30))
             .header("accept", "application/json")
-            .query(&query);
-        if route.use_api_key {
-            let Some(key) = key.as_ref() else {
-                drop(permit);
-                let error: crate::Error = ErrorKind::InputError(
-                    "CurseForge integration is waiting for an API key"
-                        .to_string(),
-                )
-                .into();
-                if route_index + 1 < routes.len() {
-                    last_error = Some(error);
-                    continue;
-                }
-                return Err(error);
-            };
-            request = request.header("x-api-key", key);
+            .query(query);
+        if route.use_launcher_token
+            && let Some(token) = launcher_token
+        {
+            request = request.bearer_auth(token);
         }
-        if let Some(body) = &body {
+        if let Some(body) = body {
             request = request.json(body);
         }
         let response = match request.send().await {
             Ok(response) => response,
-            Err(error) if route_index + 1 < routes.len() => {
+            Err(error) => {
                 drop(permit);
                 tracing::warn!(
                     url = %route.url,
@@ -10039,18 +10071,53 @@ async fn request_json<T: DeserializeOwned>(
                 last_error = Some(error.into());
                 continue;
             }
-            Err(error) => return Err(error.into()),
         };
-        drop(permit);
 
         let status = response.status();
-        let retry_after = response
-            .headers()
-            .get("retry-after")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok())
-            .map(|seconds| Duration::from_secs(seconds.min(30)));
-        let bytes = response.bytes().await?;
+        if route.source == RequestRouteSource::Official
+            && status == StatusCode::UNAUTHORIZED
+        {
+            unauthorized.store(true, Ordering::Relaxed);
+        }
+        // Retry-After applies to this host. Do not delay a healthy fallback
+        // or wait for the body of a mirror's error/redirect response.
+        if !status.is_success()
+            && should_try_next_route(
+                route,
+                status,
+                route_index + 1 < routes.len(),
+            )
+        {
+            drop(permit);
+            tracing::warn!(
+                url = %route.url,
+                route = route_index + 1,
+                status = status.as_u16(),
+                "CurseForge route rejected the request, trying another route"
+            );
+            last_error = Some(
+                ErrorKind::OtherError(format!(
+                    "CurseForge request failed with HTTP {}",
+                    status.as_u16()
+                ))
+                .into(),
+            );
+            continue;
+        }
+        let bytes = match response.bytes().await {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                drop(permit);
+                tracing::warn!(
+                    url = %route.url,
+                    %error,
+                    "CurseForge response body failed, trying another route"
+                );
+                last_error = Some(error.into());
+                continue;
+            }
+        };
+        drop(permit);
 
         tracing::info!(
             source = ?route.source,
@@ -10066,28 +10133,22 @@ async fn request_json<T: DeserializeOwned>(
         if status.is_success() {
             match serde_json::from_slice(&bytes) {
                 Ok(value) => {
-                    UNAUTHORIZED.store(false, Ordering::Relaxed);
+                    if route.source == RequestRouteSource::Official {
+                        unauthorized.store(false, Ordering::Relaxed);
+                    }
                     return Ok(value);
                 }
-                Err(error)
-                    if route.source == RequestRouteSource::Mirror
-                        && route_index + 1 < routes.len() =>
-                {
+                Err(error) => {
                     tracing::warn!(
                         url = %route.url,
                         route = route_index + 1,
                         %error,
-                        "CurseForge mirror returned incompatible response data; falling back to official source"
+                        "CurseForge route returned incompatible response data; trying another route"
                     );
                     last_error = Some(error.into());
                     continue;
                 }
-                Err(error) => return Err(error.into()),
             }
-        }
-
-        if status == StatusCode::UNAUTHORIZED {
-            UNAUTHORIZED.store(true, Ordering::Relaxed);
         }
 
         let message = response_error_message(status, &bytes);
@@ -10097,17 +10158,7 @@ async fn request_json<T: DeserializeOwned>(
             status.as_u16()
         ));
 
-        if should_try_next_route(route, status, route_index + 1 < routes.len())
-        {
-            if let Some(delay) = retry_after {
-                tokio::time::sleep(delay).await;
-            }
-            tracing::warn!(
-                url = %route.url,
-                route = route_index + 1,
-                status = status.as_u16(),
-                "CurseForge route rejected the request, trying another route"
-            );
+        if route.source == RequestRouteSource::Mirror {
             last_error = Some(route_error.into());
             continue;
         }
@@ -10115,6 +10166,13 @@ async fn request_json<T: DeserializeOwned>(
         return Err(route_error.into());
     }
 
+    if official_requires_login {
+        return Err(ErrorKind::InputError(
+            "Sign in to YSUMC again to use the CurseForge official source"
+                .to_string(),
+        )
+        .into());
+    }
     Err(last_error.unwrap_or_else(|| {
         ErrorKind::OtherError("CurseForge request exhausted routes".to_string())
             .into()
@@ -10130,8 +10188,13 @@ fn should_try_next_route(
         && (route.source == RequestRouteSource::Mirror
             || status == StatusCode::TOO_MANY_REQUESTS
             || status == StatusCode::FORBIDDEN
+            || status == StatusCode::UNAUTHORIZED
             || status.is_server_error())
 }
+
+#[cfg(test)]
+#[path = "curseforge_request_tests.rs"]
+mod request_tests;
 
 fn response_error_message(status: StatusCode, bytes: &[u8]) -> String {
     serde_json::from_slice::<Value>(bytes)
@@ -12027,12 +12090,12 @@ mod tests {
             routes[0].url,
             "https://mod.mcimirror.top/curseforge/v1/mods/search"
         );
-        assert!(!routes[0].use_api_key);
+        assert!(!routes[0].use_launcher_token);
         assert!(
-            routes
-                .iter()
-                .any(|route| route.source == RequestRouteSource::Official
-                    && route.use_api_key)
+            routes.iter().any(|route| route.source
+                == RequestRouteSource::Official
+                && route.use_launcher_token
+                && route.url.starts_with(crate::ysumc::CURSEFORGE_PROXY_URL))
         );
     }
 
@@ -12052,7 +12115,7 @@ mod tests {
     fn mirror_not_found_tries_next_route() {
         let route = RequestRoute {
             url: String::new(),
-            use_api_key: false,
+            use_launcher_token: false,
             use_system_proxy: false,
             source: RequestRouteSource::Mirror,
         };
@@ -12064,7 +12127,7 @@ mod tests {
     fn official_forbidden_response_tries_proxy_route() {
         let route = RequestRoute {
             url: String::new(),
-            use_api_key: true,
+            use_launcher_token: true,
             use_system_proxy: false,
             source: RequestRouteSource::Official,
         };
@@ -13339,6 +13402,17 @@ mod tests {
             derived_curseforge_download_url(1_234_005, "../example.jar")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn official_cdn_fallback_preserves_plus_and_existing_escapes() {
+        let candidates = curseforge_candidate_urls(
+            "https://edge.forgecdn.net/files/9268/649/fabric%20api-0.164.1+26.4.jar?token=a+b",
+        ).unwrap();
+        assert!(candidates.contains(&
+            "https://mediafilez.forgecdn.net/files/9268/649/fabric%20api-0.164.1%2B26.4.jar?token=a+b".to_string()
+        ));
+        assert!(candidates.iter().all(|url| !url.contains("%2520")));
     }
 
     #[test]

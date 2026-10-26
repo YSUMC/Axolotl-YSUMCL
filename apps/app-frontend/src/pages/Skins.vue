@@ -33,6 +33,7 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 
 import type AccountsCard from '@/components/ui/AccountsCard.vue'
 import ArmorTrimTab from '@/components/ui/skin/ArmorTrimTab.vue'
+import CapeLibrary from '@/components/ui/skin/CapeLibrary.vue'
 import EditSkinModal from '@/components/ui/skin/EditSkinModal.vue'
 import SkinListSkeleton from '@/components/ui/skin/SkinListSkeleton.vue'
 import VirtualSkinSectionList from '@/components/ui/skin/VirtualSkinSectionList.vue'
@@ -61,6 +62,7 @@ import {
     get_available_capes,
     get_available_skins,
     get_normalized_skin_texture,
+    getCapePreviewUrl,
     normalize_skin_texture,
     remove_custom_skin,
     save_custom_skin,
@@ -369,7 +371,9 @@ const currentCape = computed(() => {
             return overrideCape
         }
     }
-    return undefined
+    return isYsumcAccount.value && !hasPendingSkinChange.value
+        ? capes.value.find((cape) => cape.is_equipped)
+        : undefined
 })
 
 const skinTexture = computedAsync(async () => {
@@ -389,7 +393,7 @@ const skinTexture = computedAsync(async () => {
         return ''
     }
 })
-const capeTexture = computed(() => currentCape.value?.texture)
+const capeTexture = computed(() => getCapePreviewUrl(currentCape.value?.texture))
 const skinVariant = computed(() => selectedSkin.value?.variant)
 const skinNametag = computed(() => (themeStore.hideNametagSkinsPage ? undefined : username.value))
 const isYsumcAccount = computed(
@@ -484,6 +488,12 @@ async function loadCapes(generation = skinAccountGeneration) {
             handleError(error)
         }
     }
+}
+
+async function onCapesChanged() {
+    const generation = skinAccountGeneration
+    await loadCapes(generation)
+    await loadSkins(generation)
 }
 
 async function loadSkins(generation = skinAccountGeneration) {
@@ -1270,6 +1280,14 @@ await refreshSelectedAccount()
             </div>
             <Transition name="armor-tab" mode="out-in">
                 <div v-if="skinListTab !== 'armor'" key="list">
+                    <CapeLibrary
+                        v-if="isYsumcAccount && currentUserId && lastSkinListTab === 'saved'"
+                        :key="currentUserId"
+                        :account-id="currentUserId"
+                        :capes="capes"
+                        :disabled="isApplyingSkin"
+                        @changed="onCapesChanged"
+                    />
                     <SkinListSkeleton v-if="isSkinListBuffering" />
                     <VirtualSkinSectionList
                         v-show="!isSkinListBuffering"
@@ -1318,7 +1336,7 @@ await refreshSelectedAccount()
             class="relative mx-auto flex w-full max-w-xl flex-col gap-5 rounded-lg bg-surface-3 p-7 shadow-lg"
         >
             <img
-                src="@/assets/axolotl.png"
+                src="/ysumc/logo.svg"
                 :alt="formatMessage(messages.axolotlAlt)"
                 class="absolute -top-32 right-8 h-36 w-36 object-contain md:right-20"
             />

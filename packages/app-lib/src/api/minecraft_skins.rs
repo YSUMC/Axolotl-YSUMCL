@@ -345,6 +345,92 @@ pub async fn get_available_capes() -> crate::Result<Vec<Cape>> {
         .collect())
 }
 
+async fn society_cape_credentials(
+    account_id: &str,
+) -> crate::Result<Credentials> {
+    let state = State::get().await?;
+    let credentials = Credentials::get_default_credential(&state.pool)
+        .await?
+        .ok_or(ErrorKind::NoCredentialsError)?;
+    if credentials.account_id.as_deref() != Some(account_id)
+        || !is_society_skin_site(&credentials)
+    {
+        return Err(ErrorKind::InputError("The selected YSUMC account changed. Refresh the skin library and try again.".into()).into());
+    }
+    Ok(credentials)
+}
+
+fn validate_cape_upload(texture_blob: &[u8], name: &str) -> crate::Result<()> {
+    let (width, height) = png_util::dimensions(texture_blob)?;
+    if texture_blob.len() > 1024 * 1024
+        || height == 0
+        || width > 1024
+        || height > 512
+        || width != height * 2
+    {
+        return Err(ErrorKind::InputError("Use a PNG cape with a 2:1 aspect ratio, at most 1024 × 512 pixels and 1 MiB.".into()).into());
+    }
+    if name.trim().is_empty() || name.chars().count() > 80 {
+        return Err(ErrorKind::InputError(
+            "Enter a cape name of 1–80 characters.".into(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod cape_upload_tests {
+    use super::*;
+
+    #[test]
+    fn cape_upload_rejects_invalid_dimensions_names_and_payloads() {
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        png.extend(64u32.to_be_bytes());
+        png.extend(32u32.to_be_bytes());
+        assert!(validate_cape_upload(&png, "Cape").is_ok());
+        assert!(validate_cape_upload(&png, "  ").is_err());
+        assert!(validate_cape_upload(&png, &"x".repeat(81)).is_err());
+        assert!(validate_cape_upload(b"not a png", "Cape").is_err());
+        png[20..24].copy_from_slice(&64u32.to_be_bytes());
+        assert!(validate_cape_upload(&png, "Skin").is_err());
+        png[20..24].copy_from_slice(&32u32.to_be_bytes());
+        png.resize(1024 * 1024 + 1, 0);
+        assert!(validate_cape_upload(&png, "Too big").is_err());
+    }
+}
+
+/// Upload into the YSUMC closet without changing the player's skin or cape.
+pub async fn upload_cape(
+    account_id: String,
+    texture_blob: Bytes,
+    name: String,
+) -> crate::Result<Cape> {
+    validate_cape_upload(&texture_blob, &name)?;
+    let credentials = society_cape_credentials(&account_id).await?;
+    ysumc_site::upload_cape(&credentials, &texture_blob, name.trim()).await
+}
+
+/// Change only the cape slot; `None` removes the currently worn cape.
+pub async fn equip_cape(
+    account_id: String,
+    cape_id: Option<Uuid>,
+) -> crate::Result<()> {
+    let credentials = society_cape_credentials(&account_id).await?;
+    let tid = selected_site_cape(cape_id)?;
+    ysumc_site::equip_texture(&credentials, None, Some(tid)).await
+}
+
+pub async fn remove_cape(
+    account_id: String,
+    cape_id: Uuid,
+) -> crate::Result<()> {
+    let credentials = society_cape_credentials(&account_id).await?;
+    let tid = selected_site_cape(Some(cape_id))?
+        .ok_or(ErrorKind::InvalidSkinTexture)?;
+    ysumc_site::delete_texture(&credentials, tid).await
+}
+
 /// Gets the skins for the selected Minecraft profile.
 /// Returns saved custom skins, bundled default skins, and the active Mojang skin if its texture
 /// is not represented by a saved skin or matching bundled default.

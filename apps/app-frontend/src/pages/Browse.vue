@@ -243,6 +243,7 @@ if (isWorldMapBrowse.value && curseForgeCapability.value.configured) {
 }
 const curseForgeCategoriesByClass = ref<Record<number, CurseForgeCategory[]>>({})
 const curseForgeCategoryRequests = new Map<number, Promise<void>>()
+const curseForgeCategoryFailures = ref(new Set<number>())
 
 async function ensureCurseForgeCategories(projectTypeValue: ProjectType) {
     if (!curseForgeCapability.value.configured) return
@@ -253,10 +254,15 @@ async function ensureCurseForgeCategories(projectTypeValue: ProjectType) {
     if (pending) return pending
     const request = getCurseForgeCategories(classId)
         .then((classCategories) => {
+            curseForgeCategoryFailures.value.delete(classId)
             curseForgeCategoriesByClass.value = {
                 ...curseForgeCategoriesByClass.value,
                 [classId]: classCategories,
             }
+        })
+        .catch((error) => {
+            curseForgeCategoryFailures.value.add(classId)
+            throw error
         })
         .finally(() => curseForgeCategoryRequests.delete(classId))
     curseForgeCategoryRequests.set(classId, request)
@@ -271,7 +277,7 @@ const initialCurseForgeCategoriesPromise =
               // competing with a large CF payload on the main thread.
               runAfterPageTransitionSettle(() => {
                   void ensureCurseForgeCategories(projectType.value)
-                      .catch(handleError)
+                      .catch((error) => debugLog('CurseForge categories unavailable', error))
                       .finally(() => resolve())
               })
           })
@@ -1830,6 +1836,19 @@ function resourceEnvironmentSides(environments: string[]): {
     }
 }
 const resourceSearchNotice = ref('')
+const browseNotice = computed(() => {
+    const notices = new Set(resourceSearchNotice.value ? [resourceSearchNotice.value] : [])
+    const classId = curseForgeClassIds[projectType.value]
+    if (
+        (contentSource.value === 'all' || contentSource.value === 'curseforge') &&
+        classId &&
+        curseForgeCategoryFailures.value.has(classId)
+    ) {
+        const message = formatMessage(messages.categoriesFailed)
+        if (!resourceSearchNotice.value.includes(message)) notices.add(message)
+    }
+    return [...notices].join('; ')
+})
 const resourceSearchPages = new ResourceSearchPages(resourceSearch)
 
 async function search(requestParams: string, signal: AbortSignal) {
@@ -1889,7 +1908,9 @@ async function search(requestParams: string, signal: AbortSignal) {
         classId && categories.some((value) => !CURSEFORGE_LOADER_SLUGS.has(value))
             ? await loadResourceSearchCategories(contentSource.value, () =>
                   ensureCurseForgeCategories(projectType.value),
-              )
+              ).catch(() => {
+                  throw new Error(formatMessage(messages.categoriesFailed))
+              })
             : null
     signal.throwIfAborted()
     const query: ResourceSearchQuery = {
@@ -2242,7 +2263,9 @@ watch(contentSource, async (source) => {
         (filter) => !filter.type.startsWith('category_'),
     )
     if (source === 'curseforge' || source === 'all') {
-        await ensureCurseForgeCategories(projectType.value).catch(handleError)
+        await ensureCurseForgeCategories(projectType.value).catch((error) =>
+            debugLog('CurseForge categories unavailable', error),
+        )
     }
     if (source === 'mcarchive') await refreshMcArchiveGameVersions()
     await searchState.refreshSearch()
@@ -2269,7 +2292,9 @@ watch(projectType, async (type, previousType) => {
         setLastBrowseContentSource('all')
     }
     if (contentSource.value === 'curseforge' || contentSource.value === 'all') {
-        await ensureCurseForgeCategories(type).catch(handleError)
+        await ensureCurseForgeCategories(type).catch((error) =>
+            debugLog('CurseForge categories unavailable', error),
+        )
     }
 })
 
@@ -2579,11 +2604,11 @@ provideBrowseManager({
             </template>
             <template #above-results>
                 <div
-                    v-if="resourceSearchNotice"
+                    v-if="browseNotice"
                     role="status"
                     class="mb-3 rounded-lg border border-solid border-surface-4 bg-surface-2 p-3 text-sm"
                 >
-                    {{ resourceSearchNotice }}
+                    {{ browseNotice }}
                 </div>
             </template>
         </BrowsePageLayout>

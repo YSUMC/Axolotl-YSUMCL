@@ -167,6 +167,7 @@ mod meta;
 mod tests;
 pub(crate) mod usage;
 
+pub(crate) use cache::cleanup_uninstalled_packs;
 pub use cache::{CacheCleanupResult, clear_cache};
 pub use meta::{MetaAnalysis, MetaCleanupResult, analyze_meta, clean_meta};
 

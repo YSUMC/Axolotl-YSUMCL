@@ -997,6 +997,7 @@ mod tests {
                 location: CreatePackLocation::FromUrl {
                     url: spec.pack.url.clone(),
                     sha1: spec.pack.sha1.clone().unwrap(),
+                    sha512: spec.pack.sha512.clone(),
                     size: 12,
                     display: RemotePackDisplay {
                         name: "Official".into(),

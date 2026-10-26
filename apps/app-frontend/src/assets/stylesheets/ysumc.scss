@@ -65,6 +65,21 @@ html [data-button]::before {
     display: none;
 }
 
+// The VI uses a solid selection fill, so selected labels need its contrast color.
+html .bg-brand-highlight,
+html
+    [data-button][data-color='brand']:is(
+        .button-frame--chip,
+        .button-frame--chip-text,
+        .button-frame--highlight
+    ) {
+    color: var(--color-button-text-selected);
+
+    .text-brand {
+        color: var(--color-button-text-selected);
+    }
+}
+
 .ysumc-portal {
     display: grid;
     grid-template-columns: minmax(0, 1.6fr) minmax(16rem, 1fr);

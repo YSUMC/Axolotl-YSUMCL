@@ -423,7 +423,6 @@ import type { Ref } from 'vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import axolotlLogo from '@/assets/axolotl.png'
 import steveSkinTexture from '@/assets/skins/steve.png?inline'
 import MinecraftLoginModal from '@/components/ui/MinecraftLoginModal.vue'
 import {
@@ -459,6 +458,7 @@ import { get_available_skins } from '@/helpers/skins'
 import { handleSevereError, useError } from '@/store/error.js'
 
 const { formatMessage } = useVIntl()
+const axolotlLogo = '/ysumc/logo.svg'
 const { handleError } = injectNotificationManager()
 const { offline, refreshBrowserOffline } = useNetworkStatus()
 const queryClient = useQueryClient()

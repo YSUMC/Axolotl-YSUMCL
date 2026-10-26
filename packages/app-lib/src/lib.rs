@@ -13,6 +13,7 @@ mod util;
 
 mod api;
 pub mod brand;
+pub mod branding;
 mod error;
 mod event;
 pub mod install;

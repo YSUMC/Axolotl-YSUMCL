@@ -57,8 +57,16 @@ Var /GLOBAL OldInstallDir
         UserInfo::GetAccountType
         Pop $0
         ${If} $0 != "Admin"
-          ExecShell "runas" "$EXEPATH" '$CMDLINE /ELEVATED'
-          Abort
+          ; Current-user installs normally need no elevation. Request it only
+          ; when the actual destination cannot be written by this user.
+          ClearErrors
+          GetTempFileName $1 "$INSTDIR"
+          ${If} ${Errors}
+            ExecShell "runas" "$EXEPATH" '$CMDLINE /ELEVATED'
+            Abort
+          ${Else}
+            Delete "$1"
+          ${EndIf}
         ${EndIf}
       ${EndIf}
     ${EndIf}

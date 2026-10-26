@@ -15,6 +15,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+mod interop;
+
 /// Highest manifest schema this build understands. A manifest that declares a
 /// higher schema is rejected instead of being partially interpreted.
 const SUPPORTED_MANIFEST_SCHEMA: u32 = 1;
@@ -23,14 +25,18 @@ const SUPPORTED_MANIFEST_SCHEMA: u32 = 1;
 const MRPACK_KIND: &str = "mrpack";
 
 /// Longest managed instance id accepted, matching the manifest contract.
-const MAX_INSTANCE_ID_LEN: usize = 64;
+const MAX_INSTANCE_ID_LEN: usize = 257;
 
 /// Port used when the manifest provides a `server` object without a port.
-const DEFAULT_SERVER_PORT: u16 = 25565;
+const DEFAULT_SERVER_PORT: u16 = 0;
 
 /// One manifest document as served by the society backend.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManagedManifest {
+    #[serde(default)]
+    pub site: Option<interop::Site>,
+    #[serde(default)]
+    pub diagnostics: Vec<String>,
     #[serde(default)]
     pub cloud_map_url: Option<String>,
     #[serde(default)]
@@ -57,6 +63,8 @@ pub struct ManagedLauncherPolicy {
 /// One managed instance declared by a manifest.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManagedInstanceSpec {
+    #[serde(default)]
+    pub source: Option<interop::Source>,
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -75,7 +83,7 @@ pub struct ManagedInstanceSpec {
 }
 
 /// Game and loader versions a managed instance must be installed with.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ManagedMinecraftSpec {
     pub game_version: String,
     #[serde(default)]
@@ -91,6 +99,8 @@ pub struct ManagedPackSpec {
     pub url: String,
     #[serde(default)]
     pub sha1: Option<String>,
+    #[serde(default)]
+    pub sha512: Option<String>,
     #[serde(default)]
     pub size: Option<u64>,
 }
@@ -112,6 +122,8 @@ fn default_required() -> bool {
 /// Outcome of reconciling a manifest with the local records.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManagedSyncReport {
+    pub site: Option<interop::Site>,
+    pub diagnostics: Vec<String>,
     #[serde(default)]
     pub cloud_map_url: Option<String>,
     pub schema: u32,
@@ -234,22 +246,32 @@ pub async fn sync_manifest(
     let state = State::get().await?;
     let known = list_rows(&state).await?;
     let remote = fetch_manifest_body(manifest_url).await.and_then(|body| {
-        let parsed = parse_manifest(manifest_url, &body)?;
-        for spec in &parsed.instances {
+        let mut parsed = parse_manifest(manifest_url, &body)?;
+        for spec in &mut parsed.instances {
             if let Some(row) =
                 known.iter().find(|row| row.server_instance_id == spec.id)
             {
+                if spec.pack.kind == "server" {
+                    spec.revision = spec
+                        .revision
+                        .max(row.revision)
+                        .max(row.target_revision);
+                }
                 validate_revision_progress(
                     spec.revision,
                     row.revision.max(row.target_revision),
                 )?;
             }
         }
-        Ok((body, parsed))
+        Ok((serde_json::to_string(&parsed)?, parsed))
     });
     let (body, parsed, synced_at, offline) = match remote {
         Ok((body, parsed)) => (body, parsed, Utc::now().timestamp(), false),
         Err(error) => {
+            // An offline snapshot may belong to another account or revoked group.
+            if crate::branding::active().id == "ysumc" {
+                return Err(error);
+            }
             let cached: Option<(String, i64)> = sqlx::query_as(
                 "SELECT body, updated FROM managed_manifest_cache WHERE manifest_url = ?",
             )
@@ -266,6 +288,8 @@ pub async fn sync_manifest(
     };
 
     let ManagedManifest {
+        site,
+        diagnostics,
         schema,
         cloud_map_url,
         launcher,
@@ -378,6 +402,8 @@ pub async fn sync_manifest(
     });
 
     Ok(ManagedSyncReport {
+        site,
+        diagnostics,
         schema,
         cloud_map_url,
         offline,
@@ -422,7 +448,7 @@ pub async fn install_official(
             .into());
         }
     }
-    let report = sync_manifest(crate::ysumc::MANIFEST_URL).await?;
+    let report = sync_manifest(crate::branding::manifest_url()).await?;
     if report.offline {
         return Err(crate::ErrorKind::InputError(
             "请联网后安装或更新官方整合包".into(),
@@ -446,10 +472,19 @@ pub async fn install_official(
         .into());
     }
     let spec = action.spec;
-    let location =
+    let location = if spec.pack.kind == "server" {
+        interop::server_location(&spec).await?
+    } else {
+        if spec.pack.kind != MRPACK_KIND {
+            return Err(crate::ErrorKind::InputError(
+                "此整合包格式暂不支持安装".into(),
+            )
+            .into());
+        }
         crate::api::pack::install_from::CreatePackLocation::FromUrl {
             url: spec.pack.url.clone(),
-            sha1: spec.pack.sha1.clone().unwrap(),
+            sha1: spec.pack.sha1.clone().unwrap_or_default(),
+            sha512: spec.pack.sha512.clone(),
             size: spec.pack.size.unwrap(),
             display: crate::api::pack::install_from::RemotePackDisplay {
                 name: spec.name.clone(),
@@ -458,7 +493,8 @@ pub async fn install_official(
                 loader_version: spec.minecraft.loader_version.clone(),
                 icon_url: spec.icon_url.clone(),
             },
-        };
+        }
+    };
     let edit = Some(crate::install::InstallPostInstallEdit {
         name: Some(spec.name.clone()),
         official: Some(spec),
@@ -517,13 +553,13 @@ pub(crate) async fn verify_installed_mods(
         let cached: Option<(String,)> = sqlx::query_as(
             "SELECT body FROM managed_manifest_cache WHERE manifest_url = ?",
         )
-        .bind(crate::ysumc::MANIFEST_URL)
+        .bind(crate::branding::manifest_url())
         .fetch_optional(&state.pool)
         .await?;
         let cached = cached.ok_or_else(|| {
             crate::ErrorKind::InputError("请先刷新官方整合包清单".into())
         })?;
-        parse_manifest(crate::ysumc::MANIFEST_URL, &cached.0)?
+        parse_manifest(crate::branding::manifest_url(), &cached.0)?
             .instances
             .into_iter()
             .find(|spec| spec.id == server_id && spec.revision == revision)
@@ -534,7 +570,9 @@ pub(crate) async fn verify_installed_mods(
             })?
     };
     validate_managed_spec(&spec)?;
-    crate::api::managed_mods::verify_and_repair(instance_id, &spec).await?;
+    if spec.pack.kind != "server" {
+        crate::api::managed_mods::verify_and_repair(instance_id, &spec).await?;
+    }
     sqlx::query("INSERT INTO managed_installations(instance_id, spec_json) VALUES (?, ?) ON CONFLICT(instance_id) DO UPDATE SET spec_json = excluded.spec_json")
         .bind(instance_id).bind(serde_json::to_string(&spec)?).execute(&state.pool).await?;
     Ok(())
@@ -663,7 +701,7 @@ pub async fn ensure_instance_runnable(instance_id: &str) -> crate::Result<()> {
     let cached: Option<(String,)> = sqlx::query_as(
         "SELECT body FROM managed_manifest_cache WHERE manifest_url = ?",
     )
-    .bind(crate::ysumc::MANIFEST_URL)
+    .bind(crate::branding::manifest_url())
     .fetch_optional(&state.pool)
     .await?;
     if let Some((body,)) = cached {
@@ -711,8 +749,18 @@ pub async fn ensure_instance_runnable(instance_id: &str) -> crate::Result<()> {
 fn validate_server_instance_id(value: &str) -> crate::Result<()> {
     let safe = !value.is_empty()
         && value.len() <= MAX_INSTANCE_ID_LEN
-        && value.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'
+        && value.split(':').count() <= 2
+        && value.split(':').all(|part| {
+            !part.is_empty()
+                && part.len() <= 128
+                && part.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric()
+                        || byte == b'-'
+                        || byte == b'_'
+                        || byte == b'.'
+                })
+                && part != "."
+                && part != ".."
         });
     if !safe {
         return Err(crate::ErrorKind::InputError(format!(
@@ -750,7 +798,9 @@ fn validate_managed_spec(spec: &ManagedInstanceSpec) -> crate::Result<()> {
         ))
         .as_error());
     }
-    let digest = spec.pack.sha1.as_deref().unwrap_or_default();
+    if spec.pack.kind == "server" {
+        return interop::validate_server_spec(spec);
+    }
     let secure_url = url::Url::parse(&spec.pack.url).is_ok_and(|url| {
         url.scheme() == "https"
             && url.host_str().is_some()
@@ -758,22 +808,22 @@ fn validate_managed_spec(spec: &ManagedInstanceSpec) -> crate::Result<()> {
             && url.password().is_none()
             && url.fragment().is_none()
     });
-    if digest.len() != 40
-        || !digest.bytes().all(|c| c.is_ascii_hexdigit())
+    if !interop::valid_hashes(&spec.pack)
         || spec.pack.size.unwrap_or(0) == 0
         || !secure_url
     {
         return Err(crate::ErrorKind::InputError(
-            "Official packs require HTTPS, a SHA-1 hash and a positive size"
+            "Official packs require HTTPS, a valid hash and a positive size"
                 .into(),
         )
         .as_error());
     }
-    if spec.pack.kind != MRPACK_KIND
-        || spec.server.as_ref().is_some_and(|server| {
-            server.address.trim().is_empty() || server.port == Some(0)
-        })
-    {
+    if !matches!(
+        spec.pack.kind.as_str(),
+        "mrpack" | "multimc" | "curseforge-zip" | "server-zip" | "raw"
+    ) || spec.server.as_ref().is_some_and(|server| {
+        server.address.trim().is_empty() || server.port == Some(0)
+    }) {
         return Err(crate::ErrorKind::InputError(format!(
             "Managed instance {} has an unsupported pack format or invalid server address",
             spec.id
@@ -802,6 +852,18 @@ fn validate_manifest_schema(schema: u32) -> crate::Result<()> {
 
 async fn fetch_manifest_body(manifest_url: &str) -> crate::Result<String> {
     validate_manifest_endpoint(manifest_url)?;
+    if crate::branding::active().id == "mutmc" {
+        fetch_legacy_body().await
+    } else {
+        interop::fetch_catalog().await
+    }
+}
+
+async fn fetch_legacy_body() -> crate::Result<String> {
+    let manifest_url = crate::branding::manifest_url();
+    if crate::branding::active().id == "ysumc" {
+        return crate::api::launcher_site::fetch_text(manifest_url).await;
+    }
     let response = INSECURE_REQWEST_CLIENT
         .get(manifest_url)
         .timeout(std::time::Duration::from_secs(20))
@@ -821,7 +883,7 @@ async fn fetch_manifest_body(manifest_url: &str) -> crate::Result<String> {
 }
 
 fn validate_manifest_endpoint(manifest_url: &str) -> crate::Result<()> {
-    if manifest_url != crate::ysumc::MANIFEST_URL {
+    if manifest_url != crate::branding::manifest_url() {
         return Err(crate::ErrorKind::InputError(
             "Unexpected YSUMC manifest endpoint".into(),
         )

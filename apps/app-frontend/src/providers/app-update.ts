@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 
-export const APP_UPDATE_POPUP_DELAY_MS = 24 * 60 * 60 * 1000
+export const APP_UPDATE_POPUP_DELAY_MS = 0
 
 const UPDATE_PROMPT_STORAGE_KEY = 'modrinth-app-update-prompt-state'
 

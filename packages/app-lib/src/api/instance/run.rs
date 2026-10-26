@@ -116,7 +116,7 @@ async fn run_with_extra_launch_args_inner(
                 .as_error()
             })?
     } else {
-        Credentials::get_default_credential(&state.pool)
+        Credentials::get_credential_for_launch(&state.pool)
             .await?
             .ok_or_else(|| crate::ErrorKind::NoCredentialsError.as_error())?
     };
@@ -126,12 +126,19 @@ async fn run_with_extra_launch_args_inner(
     }
 
     if crate::managed::managed_owner(instance_id).await?.is_some() {
-        if !default_account.yggdrasil.as_ref().is_some_and(|server| {
-            server.api_root.trim_end_matches('/')
-                == crate::ysumc::YGGDRASIL_API_ROOT
-        }) {
+        if !crate::branding::accepts_account(
+            default_account.is_offline(),
+            default_account
+                .yggdrasil
+                .as_ref()
+                .map(|server| server.api_root.as_str()),
+        ) {
             return Err(crate::ErrorKind::InputError(
-                "请使用 YSUMC 账号启动官方整合包。".into(),
+                (if crate::branding::active().login_mode == "microsoft" {
+                    "请使用拥有 Minecraft Java 版的 Microsoft 账号启动官方整合包。"
+                } else {
+                    "请使用 YSUMC 账号启动官方整合包。"
+                }).into(),
             )
             .into());
         }

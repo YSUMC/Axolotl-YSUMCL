@@ -268,16 +268,6 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
         ),
     },
     {
-        id: 'shortcuts-nav-multiplayer',
-        categoryId: 'shortcut-settings',
-        targetId: 'settings-target-shortcuts-nav',
-        label: message('app.shortcut-settings.nav-multiplayer', 'Multiplayer'),
-        description: message(
-            'app.shortcut-settings.nav-multiplayer-description',
-            'Jump to multiplayer.',
-        ),
-    },
-    {
         id: 'shortcuts-nav-library',
         categoryId: 'shortcut-settings',
         targetId: 'settings-target-shortcuts-nav',
@@ -736,12 +726,6 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
         categoryId: 'storage-backups',
         targetId: 'settings-target-storage-overview',
         label: message('app.settings.resources.app-cache', 'App cache'),
-    },
-    {
-        id: 'multiplayer-public-nodes',
-        categoryId: 'network-multiplayer',
-        targetId: 'terracotta-public-nodes-title',
-        label: message('app.multiplayer.terracotta.public-nodes', 'Terracotta public nodes'),
     },
     {
         id: 'storage-overview',

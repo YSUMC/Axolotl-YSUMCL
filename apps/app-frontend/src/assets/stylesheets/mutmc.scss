@@ -1,0 +1,112 @@
+// Brand-specific semantic tokens; shared pages and controls inherit this palette.
+html[data-launcher-brand='mutmc'],
+html[data-launcher-brand='mutmc'] body {
+    --color-brand: #fec100;
+    --color-brand-highlight: #ffe6a0;
+    --color-brand-highlight-opaque: #ffe6a0;
+    --color-button-bg-selected: #fec100;
+    --color-button-text-selected: #2d0d06;
+    --color-accent-contrast: #2d0d06;
+    --color-focus-ring: #aa3e15;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+    --loading-bar-gradient: linear-gradient(to right, #fec100, #aa3e15);
+    --brand-gradient-bg: #2d0d06;
+    --brand-gradient-strong-bg: #aa3e15;
+    --mutmc-hero-overlay: linear-gradient(
+        90deg,
+        rgba(45, 13, 6, 0.93),
+        rgba(45, 13, 6, 0.56) 55%,
+        rgba(45, 13, 6, 0.08)
+    );
+}
+
+html[data-launcher-brand='mutmc'].light-mode,
+html[data-launcher-brand='mutmc'].light-mode body {
+    color-scheme: light;
+    --surface-1: #fffaf0;
+    --surface-1-5: #fffaf0;
+    --surface-2: #ffffff;
+    --surface-2-5: #fff7de;
+    --surface-3: #fff8e9;
+    --surface-4: #f1e6d2;
+    --surface-5: #e4d4b8;
+    --color-bg: #fffaf0;
+    --color-text-primary: #2d0d06;
+    --color-text-default: #3d302b;
+    --color-text-tertiary: #796b61;
+    --color-base: #3d302b;
+    --color-secondary: #796b61;
+    --color-contrast: #2d0d06;
+    --color-button-text: #2d0d06;
+    --color-divider: #eee4d6;
+    --color-link: #aa3e15;
+    --color-link-hover: #2d0d06;
+}
+
+html[data-launcher-brand='mutmc'].dark-mode,
+html[data-launcher-brand='mutmc'].dark-mode body {
+    color-scheme: dark;
+    --surface-1: #191512;
+    --surface-1-5: #201a16;
+    --surface-2: #261f1a;
+    --surface-2-5: #33291e;
+    --surface-3: #31271f;
+    --surface-4: #42362a;
+    --surface-5: #5d4c37;
+    --color-bg: #191512;
+    --color-text-primary: #fff5df;
+    --color-text-default: #f1e4ce;
+    --color-text-tertiary: #c8b69d;
+    --color-base: #f1e4ce;
+    --color-secondary: #c8b69d;
+    --color-contrast: #fff5df;
+    --color-button-text: #fff5df;
+    --color-divider: #46382c;
+    --color-link: #ffdf7b;
+    --color-link-hover: #fff5df;
+}
+
+html[data-launcher-brand='mutmc'] {
+    [data-button] {
+        border-radius: var(--radius-md);
+    }
+    .ysumc-heading {
+        font-family: var(--font-standard, sans-serif);
+        font-weight: 700;
+    }
+    .nav-rail .nav-rail-slider {
+        border-radius: var(--radius-md);
+    }
+    .mutmc-photo-hero {
+        color: #fff8e9;
+        &::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            background: var(--mutmc-hero-overlay);
+        }
+        h1,
+        h2,
+        p {
+            color: inherit;
+        }
+    }
+    .mutmc-primary-link {
+        background: var(--color-brand);
+        color: var(--color-accent-contrast);
+        text-decoration: none;
+        cursor: pointer;
+        transition: filter 150ms;
+        &:hover {
+            filter: brightness(1.06);
+        }
+        &:focus-visible {
+            outline: 3px solid var(--color-focus-ring);
+            outline-offset: 3px;
+        }
+    }
+}

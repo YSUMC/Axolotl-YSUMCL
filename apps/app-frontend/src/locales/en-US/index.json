@@ -1,4 +1,43 @@
 {
+    "app.navigation.partners": {
+        "message": "Partner clubs"
+    },
+    "ysumc.partners.title": {
+        "message": "Partner club servers and modpacks"
+    },
+    "ysumc.partners.count": {
+        "message": "{sites} clubs · {count} entries"
+    },
+    "ysumc.partners.empty": {
+        "message": "No partner servers or modpacks have been published yet."
+    },
+    "ysumc.catalog.title": {
+        "message": "Servers and modpacks"
+    },
+    "ysumc.catalog.own": {
+        "message": "YSUMC"
+    },
+    "ysumc.catalog.peer": {
+        "message": "From {site}"
+    },
+    "ysumc.catalog.stale": {
+        "message": "This site is temporarily unavailable. Showing its last published information."
+    },
+    "ysumc.catalog.skipped": {
+        "message": "Some entries could not be loaded. Refresh to try again."
+    },
+    "ysumc.catalog.unsupported": {
+        "message": "Installation of {format} packs is not supported yet"
+    },
+    "ysumc.catalog.serverOnly": {
+        "message": "Server · no modpack required"
+    },
+    "ysumc.catalog.prepareServer": {
+        "message": "Prepare game"
+    },
+    "ysumc.catalog.refreshServer": {
+        "message": "Update game"
+    },
     "app.account.modrinth-account": {
         "message": "Modrinth account"
     },
@@ -8046,7 +8085,7 @@
         "message": "Choose where analysis runs"
     },
     "app.onboarding.mascot-alt": {
-        "message": "Axolotl guide"
+        "message": "YSUMC guide"
     },
     "app.onboarding.offline-account.description": {
         "message": "Open Playing as in the sidebar to add an offline Minecraft account. You may need to sign in with an official Minecraft account on this device first."
@@ -8341,6 +8380,15 @@
     },
     "app.remote-announcements.empty": {
         "message": "No announcements"
+    },
+    "app.remote-announcements.loading": {
+        "message": "Loading announcements…"
+    },
+    "app.remote-announcements.failed": {
+        "message": "Could not refresh announcements. Please try again."
+    },
+    "app.remote-announcements.refresh": {
+        "message": "Refresh announcements"
     },
     "app.remote-announcements.preview-action": {
         "message": "Visit website"
@@ -12243,7 +12291,7 @@
         "message": "Network tests"
     },
     "app.settings.tabs.network-multiplayer": {
-        "message": "Network & multiplayer"
+        "message": "Network settings"
     },
     "app.settings.tabs.privacy-data": {
         "message": "Privacy & data sharing"
@@ -15594,10 +15642,10 @@
         "message": "See your current character, switch accounts, or open the skin site."
     },
     "ysumc.onboarding.packs.title": {
-        "message": "Official modpacks"
+        "message": "Servers and modpacks"
     },
     "ysumc.onboarding.packs.description": {
-        "message": "Install an official pack, then launch it here. Use the gear button for game settings."
+        "message": "Install and launch YSUMC games here. Find other clubs in the Partner clubs tab below Home. The gear opens game settings."
     },
     "ysumc.server.address": {
         "message": "Server address"
@@ -15617,5 +15665,134 @@
     "ysumc.skins.retry-previews": {
         "message": "Retry failed previews"
     },
-    "ysumc.downloads.curseforge-mirror-preferred": "MCIM mirror preferred (official fallback)"
+    "ysumc.downloads.curseforge-mirror-preferred": "MCIM mirror preferred (official fallback)",
+    "app.ysumc-releases.title": {
+        "message": "YSUMC Launcher {version}"
+    },
+    "app.ysumc-releases.empty-notes": {
+        "message": "No release notes have been published for this version."
+    },
+    "app.ysumc-releases.loading": {
+        "message": "Loading release notes…"
+    },
+    "app.ysumc-releases.failed": {
+        "message": "Release notes could not be loaded. Please try again."
+    },
+    "app.ysumc-releases.empty-history": {
+        "message": "No other releases have been published."
+    },
+    "app.ysumc-releases.refresh": {
+        "message": "Refresh release notes"
+    },
+    "app.ysumc-releases.refresh-failed": {
+        "message": "Refresh failed. Saved release notes are shown when available."
+    },
+    "app.ysumc-releases.latest": {
+        "message": "Latest release {version}"
+    },
+    "app.ysumc-releases.loading-latest": {
+        "message": "Loading the latest release…"
+    },
+    "app.ysumc-releases.latest-unavailable": {
+        "message": "The latest release is temporarily unavailable."
+    },
+    "app.ysumc-releases.no-releases": {
+        "message": "No launcher releases have been published yet."
+    },
+    "app.ysumc-releases.up-to-date": {
+        "message": "YSUMC Launcher is up to date."
+    },
+    "app.ysumc-releases.immediate-description": {
+        "message": "Receive new releases immediately. Turn this off to wait 24 hours; manual checks are always immediate."
+    },
+    "ysumc.capes.title": {
+        "message": "Cape library"
+    },
+    "ysumc.capes.hint": {
+        "message": "Upload a PNG cape to your YSUMC closet, then choose Wear. Use a 2:1 image such as 64 × 32 pixels."
+    },
+    "ysumc.capes.add": {
+        "message": "Add cape"
+    },
+    "ysumc.capes.name": {
+        "message": "Cape name"
+    },
+    "ysumc.capes.upload": {
+        "message": "Upload cape"
+    },
+    "ysumc.capes.cancel": {
+        "message": "Cancel"
+    },
+    "ysumc.capes.wear": {
+        "message": "Wear"
+    },
+    "ysumc.capes.worn": {
+        "message": "Wearing"
+    },
+    "ysumc.capes.unequip": {
+        "message": "Take off cape"
+    },
+    "ysumc.capes.remove": {
+        "message": "Remove from closet"
+    },
+    "ysumc.capes.remove-hint": {
+        "message": "Remove this cape from your closet? If worn, it will also be taken off."
+    },
+    "ysumc.capes.invalid": {
+        "message": "Choose a PNG file no larger than 1 MiB. Its width must be twice its height, up to 1024 × 512 pixels."
+    },
+    "ysumc.capes.empty": {
+        "message": "No capes yet. Add your first cape here."
+    },
+    "mutmc.hero.title": {
+        "message": "Together, for the love of the game."
+    },
+    "mutmc.hero.intro": {
+        "message": "Meet on the field. Explore beyond it. Your next Minecraft adventure starts here."
+    },
+    "mutmc.login.title": {
+        "message": "Your next game starts here."
+    },
+    "mutmc.login.intro": {
+        "message": "Sign in with a Microsoft account that owns Minecraft Java Edition to enter MUTMCL."
+    },
+    "mutmc.login.button": {
+        "message": "Sign in with Microsoft"
+    },
+    "mutmc.login.privacy": {
+        "message": "Authorization opens on Microsoft’s website. MUTMCL never asks for your Microsoft password."
+    },
+    "mutmc.account.edition": {
+        "message": "Minecraft Java Edition"
+    },
+    "mutmc.account.title": {
+        "message": "Ready when you are"
+    },
+    "mutmc.account.switch": {
+        "message": "Switch account"
+    },
+    "mutmc.account.skins": {
+        "message": "Skins & capes"
+    },
+    "mutmc.library": {
+        "message": "My games"
+    },
+    "mutmc.browse": {
+        "message": "Discover content"
+    },
+    "mutmc.website": {
+        "message": "Explore MUT"
+    },
+    "mutmc.packs": {
+        "message": "Official modpacks"
+    },
+    "mutmc.welcome": {
+        "message": "Welcome to MUTMCL"
+    },
+    "mutmc.tour": {
+        "message": "Install official packs here, manage your games in the library, or discover new content. Your Microsoft account is ready."
+    },
+    "mutmc.unavailable": {
+        "message": "MUT services are unavailable. Please refresh later."
+    }
 }

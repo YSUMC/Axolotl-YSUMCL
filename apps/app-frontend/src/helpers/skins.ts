@@ -27,6 +27,21 @@ export interface SkinTextureUrl {
     normalized: string
 }
 
+/** Bypass old cached site responses that lacked CORS headers for cape previews. */
+export function getCapePreviewUrl(texture?: string): string | undefined {
+    if (!texture) return undefined
+    try {
+        const url = new URL(texture)
+        if (url.origin === 'https://skin.ysumc.net' && url.pathname.startsWith('/textures/')) {
+            url.searchParams.set('ysumc-preview', '2')
+            return url.href
+        }
+    } catch {
+        // Data URLs and other renderer-supported inputs are passed through.
+    }
+    return texture
+}
+
 export const DEFAULT_MODEL_SORTING = ['Steve', 'Alex'] as string[]
 
 export const DEFAULT_MODELS: Record<string, SkinModel> = {
@@ -112,6 +127,22 @@ export function filterDefaultSkins(list: Skin[]) {
 
 export async function get_available_capes(): Promise<Cape[]> {
     return invoke('plugin:minecraft-skins|get_available_capes', {})
+}
+
+export async function upload_cape(
+    accountId: string,
+    textureBlob: Uint8Array,
+    name: string,
+): Promise<Cape> {
+    return invoke('plugin:minecraft-skins|upload_cape', { accountId, textureBlob, name })
+}
+
+export async function equip_cape(accountId: string, capeId: string | null): Promise<void> {
+    return invoke('plugin:minecraft-skins|equip_cape', { accountId, capeId })
+}
+
+export async function remove_cape(accountId: string, capeId: string): Promise<void> {
+    return invoke('plugin:minecraft-skins|remove_cape', { accountId, capeId })
 }
 
 export async function get_available_skins(): Promise<Skin[]> {

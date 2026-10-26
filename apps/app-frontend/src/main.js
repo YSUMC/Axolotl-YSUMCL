@@ -1,4 +1,5 @@
 import 'overlayscrollbars/overlayscrollbars.css'
+import '@/assets/stylesheets/mutmc.scss'
 
 import { tooltipDirective } from '@modrinth/ui/directives/tooltip.ts'
 import { VueQueryPlugin } from '@tanstack/vue-query'
@@ -6,12 +7,18 @@ import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 
 import App from '@/App.vue'
+import { isMutmc, launcherBrand } from '@/branding'
 import { overlayScrollbarsDirective } from '@/directives/overlayScrollbars'
 import { installTelemetryHandlers } from '@/helpers/telemetry'
 import { initializeLocale } from '@/i18n.config'
 import i18nPlugin from '@/plugins/i18n'
 import i18nDebugPlugin from '@/plugins/i18n-debug'
 import router from '@/routes'
+
+document.documentElement.dataset.launcherBrand = launcherBrand.id
+document.title = launcherBrand.productName
+if (isMutmc)
+    document.querySelector('link[rel=icon]')?.setAttribute('href', '/brands/mutmc/icon.webp')
 
 const pinia = createPinia()
 

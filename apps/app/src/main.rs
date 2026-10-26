@@ -365,7 +365,7 @@ async fn get_update_preferences(
     };
     Ok(UpdatePreferences {
         immediate_update_fetch: is_beta
-            || state.immediate_update_fetch.unwrap_or(false),
+            || state.immediate_update_fetch.unwrap_or(true),
         updates_paused: state.updates_paused.unwrap_or(false),
     })
 }
@@ -716,6 +716,11 @@ fn main() {
 
     let tauri_context = tauri::tauri_build_context!();
 
+    theseus::branding::initialize(
+        &tauri_context.config().identifier,
+        &tauri_context.package_info().version.to_string(),
+    );
+
     let _log_guard = theseus::start_logger(&tauri_context.config().identifier);
 
     tracing::info!("Initialized tracing subscriber. Loading Axolotl Launcher!");
@@ -892,10 +897,7 @@ fn main() {
         .plugin(api::drop::init())
         .plugin(api::files::init())
         .plugin(api::fonts::init())
-        .plugin(api::friends::init())
         .plugin(api::worlds::init())
-        .plugin(api::terracotta::init())
-        .plugin(api::multiplayer::init())
         .manage(api::files::StudioWatchers::default())
         .plugin(api::servers::init())
         .manage(PendingUpdateData::default())

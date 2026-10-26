@@ -79,6 +79,7 @@ access-jwt*.txt
 
 # Codex local verification artifacts
 /.codex-*
+/artifacts/
 
 # Local agent/scratch caches; keep maintained instructions and Skills tracked.
 /.dev-data/

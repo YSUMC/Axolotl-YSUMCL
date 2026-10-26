@@ -159,6 +159,7 @@ defineExpose({ element })
         :is="as"
         ref="element"
         data-button
+        :data-color="props.color"
         :type="props.nativeType"
         :class="classes"
         :style="style"

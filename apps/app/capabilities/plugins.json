@@ -62,6 +62,18 @@
 					"url": "https://update.axlmc.org/*"
 				},
 				{
+					"url": "https://skin.ysumc.net/api/launcher/announcements"
+				},
+				{
+					"url": "https://skin.ysumc.net/api/launcher/mutmc/announcements"
+				},
+				{
+					"url": "https://skin.ysumc.net/api/launcher/update/*"
+				},
+				{
+					"url": "https://skin.ysumc.net/api/launcher/mutmc/update/*"
+				},
+				{
 					"url": "http://localhost:8000/*"
 				},
 				{
@@ -165,10 +177,7 @@
 		"utils:default",
 		"worlds:default",
 		"drop:default",
-		"terracotta:default",
-		"multiplayer:default",
 		"servers:default",
-		"friends:default",
 		"telemetry:default",
 		"planet-minecraft:default"
 	]

@@ -1,5 +1,8 @@
 import { defineMessages, type MessageDescriptor } from '@modrinth/ui'
 
+import { isMutmc } from '@/branding'
+import { mutmcMessages } from '@/components/brands/mutmc/messages'
+
 export type OnboardingInteraction = 'manual' | 'navigate' | 'activate' | 'inspect'
 export type OnboardingMode = 'main' | 'instance' | 'logagent' | 'seed-map' | 'brewing'
 export type CreationPath = 'custom'
@@ -40,11 +43,11 @@ export const onboardingMessages = defineMessages({
         id: 'ysumc.onboarding.account.description',
         defaultMessage: 'See your current character, switch accounts, or open the skin site.',
     },
-    ysumcPacksTitle: { id: 'ysumc.onboarding.packs.title', defaultMessage: 'Official modpacks' },
+    ysumcPacksTitle: { id: 'ysumc.onboarding.packs.title', defaultMessage: 'Servers and modpacks' },
     ysumcPacksDescription: {
         id: 'ysumc.onboarding.packs.description',
         defaultMessage:
-            'Install an official pack, then launch it here. Use the gear button for game settings.',
+            'Install and launch YSUMC games here. Find other clubs in the Partner clubs tab below Home. The gear opens game settings.',
     },
     mapAreaTitle: {
         id: 'app.onboarding.seed-map-area.title',
@@ -491,7 +494,7 @@ export const onboardingMessages = defineMessages({
             'Open a local .litematic or .schem file, or choose one from an installed instance. The 3D workspace keeps viewing, measurement, layer controls, materials, and local edits together.',
     },
     skip: { id: 'app.onboarding.action.skip', defaultMessage: 'Leave the tour' },
-    mascotAlt: { id: 'app.onboarding.mascot-alt', defaultMessage: 'Axolotl guide' },
+    mascotAlt: { id: 'app.onboarding.mascot-alt', defaultMessage: 'YSUMC guide' },
 })
 
 const step = (
@@ -580,20 +583,20 @@ export const onboardingTours: Record<OnboardingMode, OnboardingStep[]> = {
         inspect(
             'ysumc-welcome',
             'ysumc-welcome',
-            onboardingMessages.ysumcWelcomeTitle,
-            onboardingMessages.ysumcWelcomeDescription,
+            isMutmc ? mutmcMessages.welcome : onboardingMessages.ysumcWelcomeTitle,
+            isMutmc ? mutmcMessages.tour : onboardingMessages.ysumcWelcomeDescription,
         ),
         inspect(
             'ysumc-account',
             'ysumc-account',
-            onboardingMessages.ysumcAccountTitle,
-            onboardingMessages.ysumcAccountDescription,
+            isMutmc ? mutmcMessages.account : onboardingMessages.ysumcAccountTitle,
+            isMutmc ? mutmcMessages.edition : onboardingMessages.ysumcAccountDescription,
         ),
         inspect(
             'ysumc-packs',
             'ysumc-official-packs',
             onboardingMessages.ysumcPacksTitle,
-            onboardingMessages.ysumcPacksDescription,
+            isMutmc ? mutmcMessages.tour : onboardingMessages.ysumcPacksDescription,
         ),
     ],
     instance: [

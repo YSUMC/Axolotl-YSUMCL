@@ -9,6 +9,9 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("minecraft-skins")
         .invoke_handler(tauri::generate_handler![
             get_available_capes,
+            upload_cape,
+            equip_cape,
+            remove_cape,
             get_available_skins,
             add_and_equip_custom_skin,
             equip_skin,
@@ -30,6 +33,31 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 #[tauri::command]
 pub async fn get_available_capes() -> Result<Vec<Cape>> {
     Ok(minecraft_skins::get_available_capes().await?)
+}
+
+#[tauri::command]
+pub async fn upload_cape(
+    account_id: String,
+    texture_blob: Bytes,
+    name: String,
+) -> Result<Cape> {
+    Ok(minecraft_skins::upload_cape(account_id, texture_blob, name).await?)
+}
+
+#[tauri::command]
+pub async fn equip_cape(
+    account_id: String,
+    cape_id: Option<uuid::Uuid>,
+) -> Result<()> {
+    Ok(minecraft_skins::equip_cape(account_id, cape_id).await?)
+}
+
+#[tauri::command]
+pub async fn remove_cape(
+    account_id: String,
+    cape_id: uuid::Uuid,
+) -> Result<()> {
+    Ok(minecraft_skins::remove_cape(account_id, cape_id).await?)
 }
 
 /// `invoke('plugin:minecraft-skins|get_available_skins')`

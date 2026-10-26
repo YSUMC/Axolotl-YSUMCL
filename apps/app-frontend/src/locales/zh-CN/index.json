@@ -1,4 +1,43 @@
 {
+    "app.navigation.partners": {
+        "message": "友社"
+    },
+    "ysumc.partners.title": {
+        "message": "友社推荐实例"
+    },
+    "ysumc.partners.count": {
+        "message": "{sites} 个友社 · {count} 个实例"
+    },
+    "ysumc.partners.empty": {
+        "message": "暂未发布友社服务器或整合包。"
+    },
+    "ysumc.catalog.title": {
+        "message": "服务器与整合包"
+    },
+    "ysumc.catalog.own": {
+        "message": "YSUMC 本站"
+    },
+    "ysumc.catalog.peer": {
+        "message": "来自 {site}"
+    },
+    "ysumc.catalog.stale": {
+        "message": "该站暂时无法同步，当前显示上次发布的信息。"
+    },
+    "ysumc.catalog.skipped": {
+        "message": "部分条目未能加载，请刷新重试。"
+    },
+    "ysumc.catalog.unsupported": {
+        "message": "暂不支持安装 {format} 格式"
+    },
+    "ysumc.catalog.serverOnly": {
+        "message": "纯服务器 · 无需整合包"
+    },
+    "ysumc.catalog.prepareServer": {
+        "message": "准备游戏"
+    },
+    "ysumc.catalog.refreshServer": {
+        "message": "更新游戏"
+    },
     "app.content-favorites.browse-resources": {
         "message": "浏览资源"
     },
@@ -6570,7 +6609,7 @@
         "message": "编辑存档"
     },
     "app.navigation.home": {
-        "message": "主页"
+        "message": "首页"
     },
     "app.navigation.lab": {
         "message": "实验室"
@@ -6582,10 +6621,10 @@
         "message": "多人游戏"
     },
     "app.navigation.screenshots": {
-        "message": "截图中心"
+        "message": "截图"
     },
     "app.navigation.skin-selector": {
-        "message": "皮肤选择器"
+        "message": "皮肤"
     },
     "app.navigation.worlds": {
         "message": "世界"
@@ -6834,7 +6873,7 @@
         "message": "你的启动书架"
     },
     "app.onboarding.mascot-alt": {
-        "message": "引导吉祥物"
+        "message": "YSUMC 指引"
     },
     "app.onboarding.offline-account.description": {
         "message": "在侧栏「当前游玩账号」中添加离线 Minecraft 账号。你可能需要先在此设备上登录一次正版 Minecraft 账号。"
@@ -7111,6 +7150,15 @@
     },
     "app.remote-announcements.empty": {
         "message": "暂无公告"
+    },
+    "app.remote-announcements.loading": {
+        "message": "正在加载公告…"
+    },
+    "app.remote-announcements.failed": {
+        "message": "公告刷新失败，请重试。"
+    },
+    "app.remote-announcements.refresh": {
+        "message": "刷新公告"
     },
     "app.remote-announcements.read-all": {
         "message": "将所有公告标为已读"
@@ -10128,7 +10176,7 @@
         "message": "日志与诊断"
     },
     "app.settings.tabs.network-multiplayer": {
-        "message": "网络与多人游戏"
+        "message": "网络设置"
     },
     "app.settings.tabs.privacy-data": {
         "message": "隐私与数据共享"
@@ -15618,10 +15666,10 @@
         "message": "这里显示当前角色，可以切换账号或前往皮肤站管理资料。"
     },
     "ysumc.onboarding.packs.title": {
-        "message": "官方整合包"
+        "message": "服务器与整合包"
     },
     "ysumc.onboarding.packs.description": {
-        "message": "安装协会整合包，然后直接启动。右下角齿轮可调整游戏设置。"
+        "message": "在首页安装、启动 YSUMC 的游戏；其他社团的服务器在首页下方的“友社”页签查看。齿轮按钮可以调整游戏设置。"
     },
     "ysumc.server.address": {
         "message": "服务器地址"
@@ -15641,5 +15689,134 @@
     "ysumc.skins.retry-previews": {
         "message": "重试失败的预览"
     },
-    "ysumc.downloads.curseforge-mirror-preferred": "MCIM 镜像优先（官方源回退）"
+    "ysumc.downloads.curseforge-mirror-preferred": "MCIM 镜像优先（官方源回退）",
+    "app.ysumc-releases.title": {
+        "message": "YSUMC 启动器 {version}"
+    },
+    "app.ysumc-releases.empty-notes": {
+        "message": "此版本尚未发布更新说明。"
+    },
+    "app.ysumc-releases.loading": {
+        "message": "正在加载更新说明…"
+    },
+    "app.ysumc-releases.failed": {
+        "message": "更新说明暂时无法加载，请重试。"
+    },
+    "app.ysumc-releases.empty-history": {
+        "message": "暂无其他已发布版本。"
+    },
+    "app.ysumc-releases.refresh": {
+        "message": "刷新更新说明"
+    },
+    "app.ysumc-releases.refresh-failed": {
+        "message": "刷新失败；如有缓存，将显示已保存的更新说明。"
+    },
+    "app.ysumc-releases.latest": {
+        "message": "最新版本 {version}"
+    },
+    "app.ysumc-releases.loading-latest": {
+        "message": "正在获取最新版本…"
+    },
+    "app.ysumc-releases.latest-unavailable": {
+        "message": "暂时无法获取最新版本。"
+    },
+    "app.ysumc-releases.no-releases": {
+        "message": "暂未发布启动器版本。"
+    },
+    "app.ysumc-releases.up-to-date": {
+        "message": "YSUMC 启动器已是最新版本。"
+    },
+    "app.ysumc-releases.immediate-description": {
+        "message": "新版本发布后立即获取。关闭后等待 24 小时；手动检查始终立即获取。"
+    },
+    "ysumc.capes.title": {
+        "message": "披风库"
+    },
+    "ysumc.capes.hint": {
+        "message": "上传 PNG 披风到 YSUMC 衣柜后，点击“穿戴”即可使用。图片宽高比须为 2:1，例如 64 × 32 像素。"
+    },
+    "ysumc.capes.add": {
+        "message": "添加披风"
+    },
+    "ysumc.capes.name": {
+        "message": "披风名称"
+    },
+    "ysumc.capes.upload": {
+        "message": "上传披风"
+    },
+    "ysumc.capes.cancel": {
+        "message": "取消"
+    },
+    "ysumc.capes.wear": {
+        "message": "穿戴"
+    },
+    "ysumc.capes.worn": {
+        "message": "已穿戴"
+    },
+    "ysumc.capes.unequip": {
+        "message": "脱下披风"
+    },
+    "ysumc.capes.remove": {
+        "message": "从衣柜移除"
+    },
+    "ysumc.capes.remove-hint": {
+        "message": "确定将这件披风从衣柜移除吗？如果正在穿戴，也会同时脱下。"
+    },
+    "ysumc.capes.invalid": {
+        "message": "请选择不超过 1 MiB 的 PNG 图片，宽度须为高度的两倍，最大 1024 × 512 像素。"
+    },
+    "ysumc.capes.empty": {
+        "message": "暂无披风，可以在这里添加。"
+    },
+    "mutmc.hero.title": {
+        "message": "为热爱，集结。"
+    },
+    "mutmc.hero.intro": {
+        "message": "在赛场相遇，也在方块之间发现更多可能。下一段冒险，从这里出发。"
+    },
+    "mutmc.login.title": {
+        "message": "下一场精彩，从这里开始。"
+    },
+    "mutmc.login.intro": {
+        "message": "使用拥有 Minecraft Java 版的 Microsoft 账号登录，即可进入 MUTMCL。"
+    },
+    "mutmc.login.button": {
+        "message": "使用 Microsoft 账号登录"
+    },
+    "mutmc.login.privacy": {
+        "message": "授权将在微软官网完成。MUTMCL 不会索取你的 Microsoft 密码。"
+    },
+    "mutmc.account.edition": {
+        "message": "Minecraft Java 版 · 正版账号"
+    },
+    "mutmc.account.title": {
+        "message": "准备好，再出发"
+    },
+    "mutmc.account.switch": {
+        "message": "切换账号"
+    },
+    "mutmc.account.skins": {
+        "message": "皮肤与披风"
+    },
+    "mutmc.library": {
+        "message": "我的游戏"
+    },
+    "mutmc.browse": {
+        "message": "发现内容"
+    },
+    "mutmc.website": {
+        "message": "探索 MUT"
+    },
+    "mutmc.packs": {
+        "message": "官方整合包"
+    },
+    "mutmc.welcome": {
+        "message": "欢迎来到 MUTMCL"
+    },
+    "mutmc.tour": {
+        "message": "在首页安装官方整合包，到实例库管理游戏，或去发现内容寻找新玩法。你的 Microsoft 账号已就绪。"
+    },
+    "mutmc.unavailable": {
+        "message": "暂时无法连接 MUT 服务，请稍后刷新重试。"
+    }
 }

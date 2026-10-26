@@ -2,8 +2,7 @@
 import { Button, commonMessages, defineMessages, NewModal, useVIntl } from '@modrinth/ui'
 import { computed, ref } from 'vue'
 
-import { getAnnouncementByVersion } from '@/announcements/catalog'
-import { AxolotlBrandConfig } from '@/config'
+import { useLauncherReleases } from '@/composables/useLauncherReleases'
 
 import UpdateAnnouncementContent from './UpdateAnnouncementContent.vue'
 
@@ -14,9 +13,11 @@ const emit = defineEmits<{
 const { formatMessage } = useVIntl()
 const modal = ref<InstanceType<typeof NewModal>>()
 const version = ref<string | null>(null)
-const announcement = computed(() => getAnnouncementByVersion(version.value))
+const { releases, loading, failed, refresh } = useLauncherReleases()
+const release = computed(() => releases.value.find((item) => item.version === version.value))
 
 const messages = defineMessages({
+    retry: { id: 'app.ysumc-releases.refresh', defaultMessage: 'Refresh release notes' },
     header: {
         id: 'app.update-announcement.modal.header',
         defaultMessage: "What's new",
@@ -26,6 +27,7 @@ const messages = defineMessages({
 function show(nextVersion: string) {
     version.value = nextVersion
     modal.value?.show()
+    void refresh()
 }
 
 function close() {
@@ -50,13 +52,17 @@ defineExpose({ show, close })
         actions-divider
     >
         <UpdateAnnouncementContent
-            :announcement="announcement"
+            :release="release"
             :version="version"
-            :external-url="announcement?.externalUrl ?? AxolotlBrandConfig.website"
+            :loading="loading"
+            :failed="failed"
         />
 
         <template #actions>
-            <div class="flex justify-end">
+            <div class="flex justify-end gap-2">
+                <Button v-if="failed" type="outlined" :disabled="loading" @click="refresh">{{
+                    formatMessage(messages.retry)
+                }}</Button>
                 <Button type="colored" color="brand" @click="close"
                     >{{ formatMessage(commonMessages.closeButton) }}
                 </Button>
