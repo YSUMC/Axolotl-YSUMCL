@@ -39,6 +39,41 @@ fn report_node(
     }
 }
 
+fn report_unresolved_node(
+    plan: &mut ResourceOperationPlan,
+    selection: &ResourceSelection,
+    metadata: Option<SourceProjectMetadata>,
+    progress: OperationProgress<'_>,
+) {
+    plan.nodes.push(ResourceDependencyNode {
+        id: selection.id.clone(),
+        root_selection_ids: plan
+            .active_roots
+            .iter()
+            .filter(|id| **id == selection.id)
+            .cloned()
+            .collect(),
+        resource_type: Some(selection.resource_type),
+        resource: selection.resource.clone(),
+        scope: selection.scope.clone(),
+        state: DependencyNodeState::Unresolved,
+        artifact: None,
+        installed_entries: Vec::new(),
+        compatibility: CompatibilityAssessment {
+            game_version: CompatibilityState::Unknown,
+            loader: CompatibilityState::Unknown,
+            reasons: Vec::new(),
+        },
+        declared_compatibility: metadata.as_ref().map(|metadata| {
+            ReleaseCompatibility {
+                game_versions: metadata.game_versions.clone(),
+                loaders: metadata.loaders.clone(),
+            }
+        }),
+    });
+    report_node(plan, metadata, progress);
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct OperationDraft {
     #[serde(default)]
@@ -1249,6 +1284,12 @@ impl ResourceService {
                     return Err(ResourceError::Canceled);
                 }
                 Err(error) => {
+                    report_unresolved_node(
+                        &mut draft.plan,
+                        &selection,
+                        None,
+                        progress,
+                    );
                     issue(
                         &mut draft.plan,
                         ResourceIssueCode::SourceUnavailable,
@@ -1344,6 +1385,12 @@ impl ResourceService {
                         return Err(ResourceError::Canceled);
                     }
                     Err(error) => {
+                        report_unresolved_node(
+                            &mut draft.plan,
+                            &selection,
+                            Some(metadata),
+                            progress,
+                        );
                         issue(
                             &mut draft.plan,
                             if matches!(

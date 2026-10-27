@@ -138,10 +138,19 @@ impl DirectoryInfo {
                 && (!path.is_dir()
                     || fs::read_dir(&path).await?.next_entry().await?.is_some())
             {
-                return Err(crate::ErrorKind::DirectoryMoveError(format!(
-                    "Game data already exists at {}. Choose an empty game directory before migrating {}.",
-                    target.display(), legacy.display()
-                )).into());
+                tracing::warn!(
+                    source = %legacy.display(),
+                    destination = %target.display(),
+                    "Skipping automatic game directory migration because the destination already contains data; keeping the existing game directory"
+                );
+                // Pin both paths to the source so startup cannot fall through
+                // to the occupied default or attempt a move. The player can
+                // still open settings and choose an empty destination.
+                settings.custom_dir =
+                    Some(legacy.to_string_lossy().into_owned());
+                settings.prev_custom_dir.clone_from(&settings.custom_dir);
+                settings.update(pool).await?;
+                return Ok(());
             }
         }
         crate::util::io::create_dir_all(target).await?;
@@ -909,41 +918,81 @@ mod resolve_game_dir_tests {
     }
 
     #[tokio::test]
-    async fn game_directory_upgrade_refuses_to_merge_existing_worlds() {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::migrate!().run(&pool).await.unwrap();
-        let temp = tempfile::tempdir().unwrap();
-        let legacy = temp.path().join("old-default");
-        let target = temp.path().join("installation/data");
-        tokio::fs::create_dir_all(target.join("profiles"))
-            .await
-            .unwrap();
-        tokio::fs::write(target.join("profiles/existing-world"), "keep me")
-            .await
-            .unwrap();
-        let mut settings = crate::state::Settings::get(&pool).await.unwrap();
-        assert!(
-            DirectoryInfo::prepare_game_directory_at(
-                &mut settings,
-                &pool,
-                &legacy,
-                &target
-            )
-            .await
-            .is_err()
-        );
-        assert!(settings.custom_dir.is_none());
-        assert_eq!(
-            tokio::fs::read_to_string(target.join("profiles/existing-world"))
+    #[cfg(not(feature = "tauri"))]
+    async fn game_directory_upgrade_keeps_legacy_when_target_is_occupied() {
+        for (explicit_legacy, occupied_path) in [
+            (false, "profiles/survival/saves/world/level.dat"),
+            (true, "profiles/survival/saves/world/level.dat"),
+            (false, "caches/existing-download"),
+        ] {
+            let pool = sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
                 .await
-                .unwrap(),
-            "keep me"
-        );
-        pool.close().await;
+                .unwrap();
+            sqlx::migrate!().run(&pool).await.unwrap();
+            let temp = tempfile::tempdir().unwrap();
+            let legacy = temp.path().join("old-default");
+            let target = temp.path().join("installation/data");
+            let original_world =
+                legacy.join("profiles/survival/saves/world/level.dat");
+            let occupied_file = target.join(occupied_path);
+            for (path, contents) in [
+                (&original_world, "original world"),
+                (&occupied_file, "another installation's data"),
+            ] {
+                tokio::fs::create_dir_all(path.parent().unwrap())
+                    .await
+                    .unwrap();
+                tokio::fs::write(path, contents).await.unwrap();
+            }
+            let mut settings =
+                crate::state::Settings::get(&pool).await.unwrap();
+            if explicit_legacy {
+                settings.custom_dir =
+                    Some(legacy.to_string_lossy().into_owned());
+                settings.prev_custom_dir.clone_from(&settings.custom_dir);
+                settings.update(&pool).await.unwrap();
+            }
+
+            // Exercise the startup sequence twice, including persisted settings,
+            // to guard against reopening the occupied target on the next run.
+            for _ in 0..2 {
+                DirectoryInfo::prepare_game_directory_at(
+                    &mut settings,
+                    &pool,
+                    &legacy,
+                    &target,
+                )
+                .await
+                .unwrap();
+                let staged = crate::state::Settings::get(&pool).await.unwrap();
+                assert_eq!(staged.custom_dir.as_deref(), legacy.to_str());
+                assert_eq!(staged.prev_custom_dir, staged.custom_dir);
+                DirectoryInfo::move_launcher_directory(
+                    &mut settings,
+                    &pool,
+                    &crate::util::fetch::IoSemaphore(
+                        tokio::sync::Semaphore::new(2),
+                    ),
+                    "isolated-conflict-test",
+                )
+                .await
+                .unwrap();
+                settings = crate::state::Settings::get(&pool).await.unwrap();
+                assert_eq!(settings.custom_dir.as_deref(), legacy.to_str());
+                assert_eq!(settings.prev_custom_dir, settings.custom_dir);
+                assert_eq!(
+                    tokio::fs::read_to_string(&original_world).await.unwrap(),
+                    "original world"
+                );
+                assert_eq!(
+                    tokio::fs::read_to_string(&occupied_file).await.unwrap(),
+                    "another installation's data"
+                );
+            }
+            pool.close().await;
+        }
     }
 
     #[test]

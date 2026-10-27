@@ -236,6 +236,106 @@ async fn canceling_after_a_progress_node_does_not_publish_a_complete_plan() {
 }
 
 #[tokio::test]
+async fn unresolved_batch_dependency_is_visible_and_removing_its_root_recovers_the_plan()
+ {
+    let mut universal = release("zoomify0", "1", 'a');
+    universal.compatibility.loaders.push("neoforge".into());
+    let mut neo_only = release("kotlin00", "1", 'b');
+    neo_only.compatibility.loaders = vec!["neoforge".into()];
+    universal.artifacts[0]
+        .dependencies
+        .push(ArtifactDependency {
+            target: DependencyTarget::Resource {
+                reference: ResourceRef::Source {
+                    project: neo_only.reference.project.clone(),
+                },
+            },
+            kind: ResourceDependencyKind::Required,
+            version_constraint: None,
+        });
+    let good = release("healthy0", "1", 'c');
+    let (_directory, service) =
+        service(vec![universal.clone(), neo_only, good.clone()]).await;
+    let events = Mutex::new(vec![]);
+    let progress = |event| {
+        events.lock().unwrap().push(event);
+    };
+    let built = service
+        .build_operation_with_progress(
+            draft(
+                vec![
+                    selection("broken", &universal, None),
+                    selection("healthy", &good, None),
+                ],
+                ResourceOperationIntent::Install,
+            ),
+            &target(),
+            &[],
+            &CancellationToken::new(),
+            Some(&progress),
+        )
+        .await
+        .unwrap();
+    let issue = built
+        .plan
+        .issues
+        .iter()
+        .find(|issue| issue.code == ResourceIssueCode::MissingDependency)
+        .unwrap();
+    assert!(issue.blocking);
+    let node = built
+        .plan
+        .nodes
+        .iter()
+        .find(|node| Some(&node.id) == issue.selection_id.as_ref())
+        .unwrap();
+    assert_eq!(node.state, DependencyNodeState::Unresolved);
+    assert!(node.artifact.is_none());
+    assert!(
+        built
+            .plan
+            .edges
+            .iter()
+            .any(|edge| edge.parent.as_str() == "broken"
+                && edge.child == node.id)
+    );
+    assert!(events.lock().unwrap().iter().any(|event| event.node.id
+        == node.id
+        && event.metadata.as_ref().is_some_and(|metadata| {
+            metadata.project.project_id.as_str() == "kotlin00"
+        })));
+    assert!(
+        built
+            .plan
+            .actions
+            .iter()
+            .any(|action| action.node_id.as_str() == "healthy")
+    );
+
+    let revised = service
+        .revise_operation(
+            built,
+            vec![ResourcePlanDecision::RemoveRoot {
+                selection_id: SelectionId::new("broken").unwrap(),
+            }],
+            &target(),
+            &[],
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert!(revised.plan.issues.is_empty(), "{:?}", revised.plan.issues);
+    assert_eq!(
+        revised.plan.active_roots,
+        vec![SelectionId::new("healthy").unwrap()]
+    );
+    assert_eq!(revised.plan.actions.len(), 1);
+    assert_eq!(revised.plan.actions[0].node_id.as_str(), "healthy");
+    assert!(revised.plan.edges.is_empty());
+    service.cache().close().await;
+}
+
+#[tokio::test]
 async fn automatic_catalog_without_compatible_candidates_is_a_normal_no_update_result()
  {
     let mut old = release("root0000", "1", 'a');

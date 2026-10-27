@@ -92,7 +92,7 @@
                                 v-for="cape in sortedCapes"
                                 :id="cape.id"
                                 :key="cape.id"
-                                :texture="cape.texture"
+                                :texture="getCapePreviewUrl(cape.texture) || cape.texture"
                                 :name="cape.name || formatMessage(messages.capeFallbackName)"
                                 :selected="selectedCape?.id === cape.id"
                                 @select="selectCape(cape)"
@@ -165,6 +165,8 @@ import {
     determineModelType,
     equip_skin,
     get_normalized_skin_texture,
+    get_skin_texture_data,
+    getCapePreviewUrl,
     normalize_skin_texture,
     save_custom_skin,
     type Skin,
@@ -258,7 +260,7 @@ const variant = ref<SkinModel>('CLASSIC')
 const selectedCape = ref<Cape | undefined>(undefined)
 const props = defineProps<{ capes?: Cape[] }>()
 
-const selectedCapeTexture = computed(() => selectedCape.value?.texture)
+const selectedCapeTexture = computed(() => getCapePreviewUrl(selectedCape.value?.texture))
 const canEditTextureAndModel = computed(() => currentSkin.value?.source !== 'default')
 const {
     showTopFade: showCapeTopFade,
@@ -449,7 +451,7 @@ async function save() {
             textureUrl = currentSkin.value!.texture
         }
 
-        const bytes: Uint8Array = new Uint8Array(await (await fetch(textureUrl)).arrayBuffer())
+        const bytes = await get_skin_texture_data(textureUrl)
 
         if (mode.value === 'new') {
             const addedSkin = await save_custom_skin(

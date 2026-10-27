@@ -8660,6 +8660,18 @@
     "app.resources.operation.missing-dependency": {
         "message": "A required dependency could not be resolved."
     },
+    "app.resources.operation.missing-named-dependency": {
+        "message": "No compatible version of {name} was found for this instance."
+    },
+    "app.resources.operation.supported-loaders": {
+        "message": "Supported loaders: {loaders}"
+    },
+    "app.resources.operation.affected-items": {
+        "message": "These items need attention: {names}. Remove them to continue with the other selections."
+    },
+    "app.resources.operation.remove-affected": {
+        "message": "Remove {count, plural, one {# affected item} other {# affected items}}"
+    },
     "app.resources.operation.no-worlds": {
         "message": "Create a singleplayer world in this instance before installing data packs."
     },

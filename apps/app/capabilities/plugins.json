@@ -71,6 +71,9 @@
 					"url": "https://skin.ysumc.net/api/launcher/update/*"
 				},
 				{
+					"url": "https://skin.ysumc.net/textures/*"
+				},
+				{
 					"url": "https://skin.ysumc.net/api/launcher/mutmc/update/*"
 				},
 				{

@@ -13706,6 +13706,18 @@
     "app.resources.operation.missing-dependency": {
         "message": "无法解析所需的依赖。"
     },
+    "app.resources.operation.missing-named-dependency": {
+        "message": "未找到适用于当前实例的 {name} 版本。"
+    },
+    "app.resources.operation.supported-loaders": {
+        "message": "支持的加载器：{loaders}"
+    },
+    "app.resources.operation.affected-items": {
+        "message": "以下内容需要处理：{names}。可将其移出本次安装，继续安装其他已选内容。"
+    },
+    "app.resources.operation.remove-affected": {
+        "message": "移出 {count} 个受影响的内容"
+    },
     "app.resources.operation.unselected-dependency": {
         "message": "已关闭自动安装依赖。请添加此必需依赖后继续。"
     },

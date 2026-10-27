@@ -345,6 +345,7 @@ it('shows each parsed item while retaining the skeleton and locking every button
         expect(
             wrapper
                 .findAll('button')
+                .filter((button) => button.text() !== 'Cancel')
                 .every((button) => button.attributes('disabled') !== undefined),
         ).toBe(true)
         expect(resourceQueuePlan).not.toHaveBeenCalled()
@@ -725,6 +726,7 @@ it('locks preparation controls and cancels an obsolete session without allowing 
         expect(
             wrapper
                 .findAll('button')
+                .filter((button) => button.text() !== 'Cancel')
                 .every((button) => button.attributes('disabled') !== undefined),
         ).toBe(true)
         const current = wrapper.vm.show({ ...input, instanceId: 'other' })
@@ -937,6 +939,7 @@ it('ignores repeated optional activation and late revisions after cancellation',
         expect(
             wrapper
                 .findAll('button')
+                .filter((button) => button.text() !== 'Cancel')
                 .every((button) => button.attributes('disabled') !== undefined),
         ).toBe(true)
         wrapper.unmount()
@@ -982,6 +985,149 @@ it('removes one explicit choice from a shared node without removing another choi
             .find((button) => button.text() === 'Cancel')!
             .trigger('click')
         expect(await result).toBeNull()
+    } finally {
+        wrapper.unmount()
+    }
+})
+
+function blockedBatch(): ResourceOperationPlan {
+    return {
+        ...plan(),
+        intent: 'install',
+        activeRoots: ['Zoomify', 'Sodium'],
+        nodes: [
+            node('Zoomify', 'selectedRoot', { reference, fileName: 'Zoomify.jar' }),
+            node('Sodium', 'selectedRoot', { reference, fileName: 'Sodium.jar' }),
+            {
+                ...node('KotlinLangForge', 'unresolved'),
+                declaredCompatibility: { gameVersions: ['26.3'], loaders: ['forge', 'neoforge'] },
+            },
+        ],
+        edges: [
+            {
+                parent: 'Zoomify',
+                child: 'KotlinLangForge',
+                kind: 'required',
+                declaredBy: reference,
+                versionConstraint: null,
+            },
+        ],
+        issues: [
+            {
+                code: 'missingDependency',
+                selectionId: 'KotlinLangForge',
+                blocking: true,
+                message: 'no compatible release found',
+            },
+        ],
+    } as ResourceOperationPlan
+}
+
+it('names the incompatible dependency and queues healthy selections only after revising the batch', async () => {
+    ready()
+    vi.mocked(resourcePrepareOperation).mockResolvedValue(blockedBatch())
+    vi.mocked(resourceRevisePlan).mockResolvedValue({
+        ...plan(2),
+        intent: 'install',
+        activeRoots: ['Sodium'],
+        nodes: [node('Sodium', 'selectedRoot', { reference })],
+    } as ResourceOperationPlan)
+    vi.mocked(resourceQueuePlan).mockResolvedValue({ job_id: 'healthy-job' } as never)
+    const wrapper = mount(ResourceOperationPreviewModal)
+    const result = wrapper.vm.showInstallSelection({ ...input, selections: [] })
+    try {
+        await flushPromises()
+        expect(wrapper.text()).toContain(
+            'No compatible version of KotlinLangForge was found for this instance.',
+        )
+        expect(wrapper.text()).toContain('Required by Zoomify')
+        expect(wrapper.text()).toContain('Supported loaders: forge, neoforge')
+        expect(wrapper.text()).toContain('These items need attention: Zoomify.')
+        expect(
+            wrapper
+                .findAll('button')
+                .find((button) => button.text() === 'Queue changes')!
+                .attributes('disabled'),
+        ).toBeDefined()
+        expect(resourceQueuePlan).not.toHaveBeenCalled()
+        await wrapper
+            .findAll('button')
+            .find((button) => button.text() === 'Remove 1 affected item')!
+            .trigger('click')
+        await flushPromises()
+        expect(resourceRevisePlan).toHaveBeenCalledWith(
+            'plan',
+            1,
+            [{ kind: 'removeRoot', selectionId: 'Zoomify' }],
+            expect.any(AbortSignal),
+            expect.any(Function),
+        )
+        await wrapper
+            .findAll('button')
+            .find((button) => button.text() === 'Queue changes')!
+            .trigger('click')
+        await flushPromises()
+        expect(resourceQueuePlan).toHaveBeenCalledWith('plan', 2)
+        expect(await result).toEqual({ job: { job_id: 'healthy-job' }, activeRoots: ['Sodium'] })
+    } finally {
+        wrapper.unmount()
+    }
+})
+
+it('retains the reviewed batch when removing affected items fails and allows retry', async () => {
+    ready()
+    vi.mocked(resourcePrepareOperation).mockResolvedValue(blockedBatch())
+    vi.mocked(resourceRevisePlan).mockRejectedValueOnce(new Error('resource request failed'))
+    const wrapper = mount(ResourceOperationPreviewModal)
+    const result = wrapper.vm.showInstallSelection({ ...input, selections: [] })
+    try {
+        await flushPromises()
+        await wrapper
+            .findAll('button')
+            .find((button) => button.text() === 'Remove 1 affected item')!
+            .trigger('click')
+        await flushPromises()
+        expect(wrapper.text()).toContain('Required by Zoomify')
+        expect(wrapper.findAll('button').find((button) => button.text() === 'Retry')).toBeDefined()
+        expect(
+            wrapper
+                .findAll('button')
+                .find((button) => button.text() === 'Queue changes')!
+                .attributes('disabled'),
+        ).toBeDefined()
+        expect(resourceQueuePlan).not.toHaveBeenCalled()
+        await wrapper
+            .findAll('button')
+            .find((button) => button.text() === 'Cancel')!
+            .trigger('click')
+        expect(await result).toBeNull()
+    } finally {
+        wrapper.unmount()
+    }
+})
+
+it('allows canceling from the button while dependency resolution is pending', async () => {
+    ready()
+    let finish!: (value: ResourceOperationPlan) => void
+    vi.mocked(resourcePrepareOperation).mockImplementationOnce(
+        () =>
+            new Promise((resolve) => {
+                finish = resolve
+            }),
+    )
+    const wrapper = mount(ResourceOperationPreviewModal)
+    const result = wrapper.vm.showInstallSelection({ ...input, selections: [] })
+    try {
+        await flushPromises()
+        const cancel = wrapper.findAll('button').find((button) => button.text() === 'Cancel')!
+        expect(cancel.attributes('disabled')).toBeUndefined()
+        await cancel.trigger('click')
+        expect(await result).toBeNull()
+        expect(vi.mocked(resourcePrepareOperation).mock.calls.at(-1)![4]?.aborted).toBe(true)
+        finish(blockedBatch())
+        await flushPromises()
+        expect(wrapper.find('section').exists()).toBe(false)
+        expect(resourceQueuePlan).not.toHaveBeenCalled()
     } finally {
         wrapper.unmount()
     }

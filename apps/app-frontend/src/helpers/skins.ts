@@ -1,5 +1,6 @@
 import { arrayBufferToBase64 } from '@modrinth/utils'
 import { invoke } from '@tauri-apps/api/core'
+import { fetch as nativeFetch } from '@tauri-apps/plugin-http'
 
 export interface Cape {
     id: string
@@ -25,6 +26,26 @@ export interface Skin {
 export interface SkinTextureUrl {
     original: string
     normalized: string
+}
+
+/** Read the original PNG without sending site textures through the WebView's CORS cache. */
+export async function get_skin_texture_data(texture: string): Promise<Uint8Array> {
+    const url = new URL(texture)
+    const isSiteTexture =
+        url.origin === 'https://skin.ysumc.net' && url.pathname.startsWith('/textures/')
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15000)
+    try {
+        const response = await (isSiteTexture ? nativeFetch : fetch)(texture, {
+            signal: controller.signal,
+        })
+        if (!response.ok) {
+            throw new Error(`Failed to load skin texture (HTTP ${response.status}).`)
+        }
+        return new Uint8Array(await response.arrayBuffer())
+    } finally {
+        clearTimeout(timeout)
+    }
 }
 
 /** Bypass old cached site responses that lacked CORS headers for cape previews. */

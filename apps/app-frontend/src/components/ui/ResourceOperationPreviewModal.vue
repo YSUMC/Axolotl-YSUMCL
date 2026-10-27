@@ -5,6 +5,7 @@ import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef } from
 import type { InstallJobSnapshot } from '@/helpers/install'
 import { refresh_content } from '@/helpers/instance'
 import { resourceOperationError, resourceSourceName } from '@/helpers/resource-operation-logic'
+import { blockedInstallRoots } from '@/helpers/resource-plan-recovery'
 import {
     type ResourceDependencyNode,
     resourceGet,
@@ -118,6 +119,23 @@ const messages = defineMessages({
         id: 'app.resources.operation.missing-dependency',
         defaultMessage: 'A required dependency could not be resolved.',
     },
+    missingNamedDependency: {
+        id: 'app.resources.operation.missing-named-dependency',
+        defaultMessage: 'No compatible version of {name} was found for this instance.',
+    },
+    supportedLoaders: {
+        id: 'app.resources.operation.supported-loaders',
+        defaultMessage: 'Supported loaders: {loaders}',
+    },
+    affectedItems: {
+        id: 'app.resources.operation.affected-items',
+        defaultMessage:
+            'These items need attention: {names}. Remove them to continue with the other selections.',
+    },
+    removeAffected: {
+        id: 'app.resources.operation.remove-affected',
+        defaultMessage: 'Remove {count, plural, one {# affected item} other {# affected items}}',
+    },
     unselectedDependency: {
         id: 'app.resources.operation.unselected-dependency',
         defaultMessage:
@@ -203,6 +221,8 @@ function issueNotice(issue: PlanIssue): Notice | null {
                     : formatMessage(messages.unresolvedOptional)
             case 'missingDependency':
                 if (node?.state === 'missing') return formatMessage(messages.unselectedDependency)
+                if (node && issue.message === 'no compatible release found')
+                    return formatMessage(messages.missingNamedDependency, { name: name(node) })
                 return formatMessage(messages.missingDependency)
             case 'versionConflict':
                 if (
@@ -255,6 +275,26 @@ const canApply = computed(
         !queueing.value &&
         (plan.value?.actions.length ?? 0) > 0 &&
         !plan.value?.issues.some((issue) => issue.blocking),
+)
+const hasBlockingIssues = computed(
+    () => plan.value?.issues.some((issue) => issue.blocking) ?? false,
+)
+const blockedRoots = computed(() => (plan.value ? blockedInstallRoots(plan.value) : []))
+const canRemoveAffected = computed(
+    () =>
+        plan.value?.intent === 'install' &&
+        blockedRoots.value.length > 0 &&
+        blockedRoots.value.length < plan.value.activeRoots.length,
+)
+const affectedNames = computed(() =>
+    blockedRoots.value
+        .map((id) => {
+            const node = plan.value?.nodes.find(
+                (node) => node.id === id || node.rootSelectionIds?.includes(id),
+            )
+            return node ? name(node) : id
+        })
+        .join(', '),
 )
 function name(node: ResourceDependencyNode) {
     return (
@@ -399,6 +439,17 @@ async function revise(decision: ResourcePlanDecision) {
     if (!value || busy.value) return
     await run((signal, onProgress) =>
         resourceRevisePlan(value.id, value.revision, [decision], signal, onProgress),
+    )
+}
+async function removeAffected() {
+    const value = plan.value
+    if (!value || busy.value || !canRemoveAffected.value) return
+    const decisions: ResourcePlanDecision[] = blockedRoots.value.map((selectionId) => ({
+        kind: 'removeRoot',
+        selectionId,
+    }))
+    await run((signal, onProgress) =>
+        resourceRevisePlan(value.id, value.revision, decisions, signal, onProgress),
     )
 }
 function hide() {
@@ -619,7 +670,7 @@ defineExpose({ show, showInstall, showInstallSelection, cancel })
         ref="modal"
         :header="formatMessage(messages.header)"
         :on-hide="hide"
-        :disable-close="busy && !closing"
+        :disable-close="queueing && !closing"
         scrollable
         width="min(42rem, 90vw)"
     >
@@ -700,6 +751,16 @@ defineExpose({ show, showInstall, showInstallSelection, cancel })
                 </p>
                 <p v-if="node.state === 'disabled'" class="m-0 text-sm">
                     {{ formatMessage(messages.disabledDependency) }}
+                </p>
+                <p
+                    v-if="node.state === 'unresolved' && node.declaredCompatibility?.loaders.length"
+                    class="m-0 text-sm"
+                >
+                    {{
+                        formatMessage(messages.supportedLoaders, {
+                            loaders: node.declaredCompatibility.loaders.join(', '),
+                        })
+                    }}
                 </p>
                 <Button
                     v-if="node.state === 'missing'"
@@ -833,6 +894,17 @@ defineExpose({ show, showInstall, showInstallSelection, cancel })
             >
                 {{ notice.text }}
             </p>
+            <div v-if="hasBlockingIssues && !busy" class="flex flex-col gap-2" role="alert">
+                <template v-if="canRemoveAffected">
+                    <p class="m-0 text-sm">
+                        {{ formatMessage(messages.affectedItems, { names: affectedNames }) }}
+                    </p>
+                    <Button @click="removeAffected">{{
+                        formatMessage(messages.removeAffected, { count: blockedRoots.length })
+                    }}</Button>
+                </template>
+                <Button @click="refresh">{{ formatMessage(messages.refresh) }}</Button>
+            </div>
             <p
                 v-if="
                     plan &&
@@ -847,7 +919,7 @@ defineExpose({ show, showInstall, showInstallSelection, cancel })
         </div>
         <template #actions>
             <div class="flex items-center justify-end gap-2">
-                <Button :disabled="busy" @click="modal?.hide()">{{
+                <Button :disabled="queueing" @click="cancel">{{
                     formatMessage(messages.cancel)
                 }}</Button>
                 <Button color="brand" :disabled="!canApply" @click="apply">{{
