@@ -91,6 +91,18 @@ let refreshInterval: ReturnType<typeof setInterval> | undefined
 let lastRequestAt = 0
 let advanceTimer: ReturnType<typeof setTimeout> | undefined
 
+function loadReadState() {
+    read.clear()
+    if (props.previewOnly) return
+    try {
+        const saved = JSON.parse(localStorage.getItem(stateKey) ?? 'null')
+        if (saved && Array.isArray(saved.read))
+            for (const key of saved.read) if (typeof key === 'string') read.add(key)
+    } catch {
+        // Ignore malformed local read-state
+    }
+}
+
 function persist() {
     if (props.previewOnly) return
     try {
@@ -211,11 +223,7 @@ function sync(next: RemoteAnnouncement[], fresh: boolean) {
     if (fresh) {
         for (const item of items.value) {
             const key = announcementKey(item)
-            if (
-                item.type === 'modal' &&
-                !queuedThisSession.has(key) &&
-                (!read.has(key) || item.priority === 'critical')
-            ) {
+            if (item.type === 'modal' && !queuedThisSession.has(key) && !read.has(key)) {
                 queuedThisSession.add(key)
                 pending.push(item)
             }
@@ -355,13 +363,7 @@ function preview(type: RemoteAnnouncement['type'], withAction = false) {
 defineExpose({ preview })
 onMounted(() => {
     if (props.previewOnly) return
-    try {
-        const saved = JSON.parse(localStorage.getItem(stateKey) ?? 'null')
-        if (saved && Array.isArray(saved.read))
-            for (const key of saved.read) if (typeof key === 'string') read.add(key)
-    } catch {
-        // Ignore malformed local read-state
-    }
+    loadReadState()
     window.addEventListener(OPEN_REMOTE_ANNOUNCEMENT_CENTER_EVENT, handleOpenCenter)
     window.addEventListener('focus', handleFocus)
     window.addEventListener('online', handleOnline)
@@ -393,7 +395,7 @@ watch(
         controller?.abort()
         inFlight = false
         stateKey = `${baseStateKey}:${ysumcAccount.value?.account_id ?? 'guest'}`
-        read.clear()
+        loadReadState()
         queuedThisSession.clear()
         startupNotified.clear()
         pending = []

@@ -1,7 +1,7 @@
 [package]
 name = "theseus_gui"
 # The actual version is set by the theseus-build workflow on tagging
-version = "1.1.1"
+version = "1.1.2"
 edition.workspace = true
 description = "YSUMC Launcher is the Minecraft launcher for the Yanshan University Minecraft Club"
 homepage = "https://ysumc.net"

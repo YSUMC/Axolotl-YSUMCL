@@ -29,7 +29,7 @@ import QqIcon from '@/assets/external/qq.svg?component'
 import EasterEggContributorsModal from '@/components/ui/easteregg/EasterEggContributorsModal.vue'
 import EasterEggGameModal from '@/components/ui/easteregg/EasterEggGameModal.vue'
 import { AxolotlBrandConfig } from '@/config'
-import { contributors, type TeamMember, teamMembers } from '@/data/about'
+import { contributors, type TeamMember, teamMembers, ysumclTeamMembers } from '@/data/about'
 
 import { type AboutMemberExperience, getAboutMemberExperience } from './about-member-experiences'
 import QqChannelIcon from './QqChannelIcon.vue'
@@ -218,9 +218,13 @@ const messages = defineMessages({
         id: 'app.settings.about.replay-onboarding',
         defaultMessage: 'Replay tour',
     },
-    developmentTeam: {
-        id: 'app.settings.about.development-team',
-        defaultMessage: 'Development team',
+    ysumclDevelopmentTeam: {
+        id: 'app.settings.about.ysumcl-development-team',
+        defaultMessage: 'YSUMCL development team',
+    },
+    axolotlDevelopmentTeam: {
+        id: 'app.settings.about.axolotl-development-team',
+        defaultMessage: 'Axolotl development team',
     },
     communitySupport: {
         id: 'app.settings.about.community-support',
@@ -302,6 +306,11 @@ const messages = defineMessages({
     },
 })
 
+const developmentTeams = [
+    { id: 'ysumcl', title: messages.ysumclDevelopmentTeam, members: ysumclTeamMembers },
+    { id: 'axolotl', title: messages.axolotlDevelopmentTeam, members: teamMembers },
+]
+
 const projectLinks = [
     {
         href: AxolotlBrandConfig.website,
@@ -367,18 +376,21 @@ const projectLinks = [
             </p>
         </section>
 
-        <SettingsSection>
+        <SettingsSection v-for="team in developmentTeams" :key="team.id">
             <template #header>
                 <h3
                     class="m-0 flex items-center gap-2 text-base font-semibold text-[var(--color-text-primary)]"
                 >
                     <UsersIcon class="size-5 text-[var(--color-text-tertiary)]" />
-                    {{ formatMessage(messages.developmentTeam) }}
+                    {{ formatMessage(team.title) }}
                 </h3>
             </template>
             <div class="p-4">
-                <ul class="m-0 grid list-none grid-cols-2 gap-3 p-0 sm:grid-cols-3">
-                    <li v-for="member in teamMembers" :key="member.name" class="min-w-0">
+                <ul
+                    class="m-0 grid list-none grid-cols-2 gap-3 p-0"
+                    :class="{ 'sm:grid-cols-3': team.members.length > 2 }"
+                >
+                    <li v-for="member in team.members" :key="member.name" class="min-w-0">
                         <component
                             :is="member.url ? 'a' : 'div'"
                             :href="member.url"

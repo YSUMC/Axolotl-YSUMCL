@@ -1,4 +1,16 @@
 {
+    "app.close-launcher.product-title": {
+        "message": "Choose how to close {productName}"
+    },
+    "app.appearance-settings.close-behavior.window-title": {
+        "message": "When closing the launcher window"
+    },
+    "app.settings.about.ysumcl-development-team": {
+        "message": "YSUMCL development team"
+    },
+    "app.settings.about.axolotl-development-team": {
+        "message": "Axolotl development team"
+    },
     "app.navigation.partners": {
         "message": "Partner clubs"
     },

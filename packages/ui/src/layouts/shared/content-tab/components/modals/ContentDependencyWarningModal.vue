@@ -127,10 +127,7 @@
                                         <span
                                             v-for="dependency in dependent.dependencies"
                                             :key="dependency.id"
-                                            v-tooltip="{
-                                                content: autoToHTML(dependency.project.title),
-                                                html: true,
-                                            }"
+                                            v-tooltip="autoCleanToText(dependency.project.title)"
                                         >
                                             <span
                                                 class="mr-0.5 truncate text-xs text-[var(--color-text-tertiary)]"
@@ -212,7 +209,7 @@
 
 <script setup lang="ts">
 import { TrashIcon, XIcon } from '@modrinth/assets'
-import { autoToHTML } from '@sfirew/minecraft-motd-parser'
+import { autoCleanToText } from '@sfirew/minecraft-motd-parser'
 import { computed, nextTick, ref } from 'vue'
 
 import Admonition from '#ui/components/base/Admonition.vue'

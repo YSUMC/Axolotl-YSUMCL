@@ -953,8 +953,8 @@ const messages = defineMessages({
         defaultMessage: 'Restarting...',
     },
     closeLauncherTitle: {
-        id: 'app.close-launcher.title',
-        defaultMessage: 'Choose how to close Axolotl Launcher',
+        id: 'app.close-launcher.product-title',
+        defaultMessage: 'Choose how to close {productName}',
     },
     closeLauncherDirect: {
         id: 'app.close-launcher.direct',
@@ -3243,7 +3243,11 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
     />
     <NewModal
         ref="closeChoiceModal"
-        :header="formatMessage(messages.closeLauncherTitle)"
+        :header="
+            formatMessage(messages.closeLauncherTitle, {
+                productName: AxolotlBrandConfig.productName,
+            })
+        "
         :closable="true"
         :close-on-click-outside="true"
         :disable-close="closeRequestInProgress"

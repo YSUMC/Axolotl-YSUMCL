@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { autoToHTML } from '@sfirew/minecraft-motd-parser'
+import { autoCleanToText } from '@sfirew/minecraft-motd-parser'
 import { computed } from 'vue'
 
 const props = defineProps<{
     text: string
 }>()
 
-const renderedText = computed(() => autoToHTML(props.text))
+// Content names use the surrounding theme color, not Minecraft's in-game formatting.
+const plainText = computed(() => autoCleanToText(props.text))
 </script>
 
 <template>
-    <!-- eslint-disable-next-line vue/no-v-html -->
-    <span v-html="renderedText" />
+    <span>{{ plainText }}</span>
 </template>

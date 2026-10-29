@@ -288,8 +288,8 @@ const messages = defineMessages({
         defaultMessage: 'Use system window frame (app restart required).',
     },
     closeBehaviorTitle: {
-        id: 'app.appearance-settings.close-behavior.title',
-        defaultMessage: 'Choose how to close Axolotl Launcher',
+        id: 'app.appearance-settings.close-behavior.window-title',
+        defaultMessage: 'When closing the launcher window',
     },
     closeBehaviorDescription: {
         id: 'app.appearance-settings.close-behavior.description',

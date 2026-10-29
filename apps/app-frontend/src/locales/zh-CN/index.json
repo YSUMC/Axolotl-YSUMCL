@@ -1,4 +1,16 @@
 {
+    "app.close-launcher.product-title": {
+        "message": "选择如何关闭 {productName}"
+    },
+    "app.appearance-settings.close-behavior.window-title": {
+        "message": "关闭启动器窗口时"
+    },
+    "app.settings.about.ysumcl-development-team": {
+        "message": "YSUMCL 开发组"
+    },
+    "app.settings.about.axolotl-development-team": {
+        "message": "美西螈开发组"
+    },
     "app.navigation.partners": {
         "message": "友社"
     },

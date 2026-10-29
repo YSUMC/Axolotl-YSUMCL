@@ -28,3 +28,18 @@ export const teamMembers: (TeamMember & { avatarUrl: string })[] = teamData.map(
 }))
 
 export const contributors = contributorsData as Contributor[]
+
+export const ysumclTeamMembers: (TeamMember & { avatarUrl: string })[] = [
+    {
+        name: 'GoodNormal',
+        avatar: 'goodnormal.png',
+        avatarUrl: teamAvatarModules['./avatars/goodnormal.png'],
+        url: 'https://github.com/GoodNormal',
+    },
+    {
+        name: 'wotsginger',
+        avatar: 'wotsginger.jpg',
+        avatarUrl: teamAvatarModules['./avatars/wotsginger.jpg'],
+        url: 'https://github.com/wotsginger',
+    },
+]

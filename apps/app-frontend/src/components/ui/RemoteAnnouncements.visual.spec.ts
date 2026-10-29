@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { h, ref } from 'vue'
 
 import { OPEN_REMOTE_ANNOUNCEMENT_CENTER_EVENT } from '@/helpers/remote-announcements'
+import { ysumcAccount } from '@/helpers/ysumc-session'
 
 import RemoteAnnouncements from './RemoteAnnouncements.vue'
 
@@ -52,12 +53,81 @@ function respond(items = [notice]) {
 }
 beforeEach(() => {
     localStorage.clear()
+    ysumcAccount.value = null
     vi.useFakeTimers()
     vi.stubGlobal('requestIdleCallback', (callback: () => void) => {
         callback()
         return 1
     })
     respond()
+})
+
+function signIn(accountId: string) {
+    ysumcAccount.value = { account_id: accountId } as NonNullable<typeof ysumcAccount.value>
+}
+
+it.each(['normal', 'critical'])(
+    'keeps a read %s announcement closed after restarting and restoring login',
+    async (priority) => {
+        respond([{ ...notice, priority }])
+        signIn('player-a')
+        wrapper = mount(RemoteAnnouncements, { props: { ready: true } })
+        await flushPromises()
+        expect(mocks.show).toHaveBeenCalledOnce()
+        expect(
+            JSON.parse(localStorage.getItem('ysumc-remote-announcements-v2:player-a')!).read,
+        ).toContain(`${notice.id}:${notice.published_at}`)
+
+        wrapper.unmount()
+        ysumcAccount.value = null
+        mocks.show.mockClear()
+        wrapper = mount(RemoteAnnouncements, { props: { ready: false } })
+        await flushPromises()
+        signIn('player-a')
+        await wrapper.setProps({ ready: true })
+        await flushPromises()
+        await vi.advanceTimersByTimeAsync(350)
+        expect(mocks.show).not.toHaveBeenCalled()
+
+        window.dispatchEvent(new Event(OPEN_REMOTE_ANNOUNCEMENT_CENTER_EVENT))
+        await flushPromises()
+        expect(mocks.show).toHaveBeenCalledOnce()
+        expect(wrapper.text()).toContain('云端公告')
+    },
+)
+
+it('keeps read status separate between accounts', async () => {
+    localStorage.setItem(
+        'ysumc-remote-announcements-v2:player-a',
+        JSON.stringify({
+            read: [`${notice.id}:${notice.published_at}`],
+        }),
+    )
+    wrapper = mount(RemoteAnnouncements, { props: { ready: false } })
+    await flushPromises()
+    signIn('player-a')
+    await wrapper.setProps({ ready: true })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(350)
+    expect(mocks.show).not.toHaveBeenCalled()
+
+    signIn('player-b')
+    await flushPromises()
+    expect(mocks.show).toHaveBeenCalledOnce()
+})
+
+it('shows a newly published revision even when the previous revision was read', async () => {
+    localStorage.setItem(
+        'ysumc-remote-announcements-v2:player-a',
+        JSON.stringify({
+            read: [`${notice.id}:${notice.published_at}`],
+        }),
+    )
+    signIn('player-a')
+    respond([{ ...notice, published_at: '2020-01-02T00:00:00Z' }])
+    wrapper = mount(RemoteAnnouncements, { props: { ready: true } })
+    await flushPromises()
+    expect(mocks.show).toHaveBeenCalledOnce()
 })
 afterEach(() => {
     wrapper?.unmount()

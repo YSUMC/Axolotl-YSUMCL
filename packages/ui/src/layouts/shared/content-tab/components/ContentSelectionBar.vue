@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { PowerIcon, PowerOffIcon, XIcon } from '@modrinth/assets'
-import { autoCleanToText, autoToHTML } from '@sfirew/minecraft-motd-parser'
+import { autoCleanToText } from '@sfirew/minecraft-motd-parser'
 import { computed } from 'vue'
 
 import Avatar from '#ui/components/base/Avatar.vue'
@@ -143,7 +143,7 @@ function resolveItemTitle(item: ContentItem) {
 }
 
 function itemTitleTooltip(item: ContentItem) {
-    return { content: autoToHTML(resolveItemTitle(item)), html: true }
+    return { content: autoCleanToText(resolveItemTitle(item)) }
 }
 
 const allDisabled = computed(

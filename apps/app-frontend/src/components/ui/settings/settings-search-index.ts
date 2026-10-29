@@ -343,8 +343,8 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
         categoryId: 'interface',
         targetId: 'settings-target-appearance-close-behavior',
         label: message(
-            'app.appearance-settings.close-behavior.title',
-            'Choose how to close Axolotl Launcher',
+            'app.appearance-settings.close-behavior.window-title',
+            'When closing the launcher window',
         ),
         keywords: [
             message('app.appearance-settings.close-behavior.close', 'Close directly'),
